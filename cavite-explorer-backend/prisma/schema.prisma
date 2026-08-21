@@ -1,0 +1,281 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id       String @id @default(uuid())
+  email    String @unique
+  password String
+
+  // --- PROFILE FIELDS ---
+  name     String?
+  mobile   String?
+  birthday String?
+  sex      String?
+  // ----------------------
+
+  role        String               @default("user")
+  isActive    Boolean              @default(true)
+  trips       TripPlan[]
+  badges      UserBadge[]
+  redemptions DiscountRedemption[]
+  auditLogs   AuditLog[]
+  sentInvites AdminInvite[]        @relation("InviteSender")
+  createdAt   DateTime             @default(now())
+}
+
+model AdminInvite {
+  id          String    @id @default(uuid())
+  email       String    @unique
+  name        String?
+  role        String
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  invitedById String
+  invitedBy   User      @relation("InviteSender", fields: [invitedById], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+}
+
+model Landmark {
+  id            String   @id @default(uuid())
+  name          String
+  shortSummary  String?
+  municipality  String
+  barangay      String?
+  streetAddress String?
+  description   String
+  images        String[]
+  category      String   @default("Historical Site")
+  latitude      Float
+  longitude     Float
+
+  openingDays     String?
+  openingTime     String?
+  closingTime     String?
+  isAlwaysOpen    Boolean @default(false)
+  entranceFee     String?
+  isFreeEntrance  Boolean @default(false)
+  contactNumber   String?
+  websiteUrl      String?
+  visitDuration   String?
+  bestTimeToVisit String?
+  operatingStatus String  @default("open")
+
+  historicalBackground String?
+  culturalSignificance String?
+  yearEstablished      String?
+  importantPeople      String[] @default([])
+  importantEvents      String[] @default([])
+  interestingFacts     String[] @default([])
+  informationSources   String[] @default([])
+
+  dressCode        String?
+  photographyRules String?
+  prohibitedItems  String?
+  petPolicy        String?
+  safetyReminders  String?
+  emergencyContact String?
+  visitorTips      String?
+
+  publicationStatus String    @default("draft")
+  verifiedBy        String?
+  lastVerifiedAt    DateTime?
+  publishedAt       DateTime?
+
+  gameType   String  @default("quiz")
+  badgeImage String?
+
+  trips     TripPlan[]
+  earnedBy  UserBadge[]
+  offers    DiscountOffer[]
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+}
+
+model TripPlan {
+  id         String @id @default(uuid())
+  userId     String
+  landmarkId String
+
+  // --- 🚀 NEW FIELDS FOR AI TRIP PLAN ---
+  title        String // "A Day at Aguinaldo Shrine"
+  startAddress String // Where the user is coming from
+  itinerary    Json // Stores the array of steps exactly as the AI provided them
+  commuteGuide Json? // Verified commute steps used by the live guide
+  routeGeometry Json? // Exact verified route line displayed during live guidance
+  plannedStartAt DateTime?
+  plannedEndAt   DateTime?
+  tripMode       String @default("SCHEDULED") // SCHEDULED or NOW
+  status         String @default("PLANNED") // PLANNED, ACTIVE, COMPLETED, CANCELLED
+  currentStep    Int    @default(0)
+
+  addedAt DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id])
+  landmark Landmark @relation(fields: [landmarkId], references: [id])
+
+  // ⚠️ Removed @@unique([userId, landmarkId]) so a user can save multiple trips to the same landmark!
+}
+
+model UserBadge {
+  id         String   @id @default(uuid())
+  userId     String
+  landmarkId String
+  earnedAt   DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id])
+  landmark Landmark @relation(fields: [landmarkId], references: [id])
+
+  @@unique([userId, landmarkId])
+}
+
+model TransportStop {
+  id           String               @id @default(uuid())
+  name         String
+  municipality String
+  latitude     Float
+  longitude    Float
+  type         String               @default("boarding")
+  notes        String?
+  isActive     Boolean              @default(true)
+  routeStops   TransportRouteStop[]
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+}
+
+model TransportRoute {
+  id                   String               @id @default(uuid())
+  name                 String
+  mode                 String
+  outboundSignboard    String?
+  inboundSignboard     String?
+  originName           String?
+  originMunicipality   String?
+  originRoadName       String?
+  originLatitude       Float?
+  originLongitude      Float?
+  destinationName      String?
+  destinationMunicipality String?
+  destinationRoadName  String?
+  destinationLatitude Float?
+  destinationLongitude Float?
+  outboundGeometry     Json?
+  inboundGeometry      Json?
+  outboundRoads        String[]             @default([])
+  inboundRoads         String[]             @default([])
+  outboundRoadAnchors  Json?
+  inboundRoadAnchors   Json?
+  outboundAccessPoints Json?
+  inboundAccessPoints  Json?
+  isBidirectional      Boolean              @default(true)
+  baseFare             Float?               @map("fareMin")
+  legacyFareMax        Float?               @map("fareMax")
+  baseDistanceKm       Float                @default(4)
+  additionalFarePerKm  Float?
+  fareNotes            String?
+  notes                String?
+  isActive              Boolean              @default(true)
+  lastVerifiedAt       DateTime?
+  stops                 TransportRouteStop[]
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+}
+
+model TransportRouteStop {
+  id          String         @id @default(uuid())
+  routeId     String
+  stopId      String
+  sequence    Int
+  canBoard    Boolean        @default(true)
+  canTransfer Boolean        @default(false)
+  route       TransportRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  stop        TransportStop  @relation(fields: [stopId], references: [id], onDelete: Cascade)
+
+  @@unique([routeId, sequence])
+  @@unique([routeId, stopId])
+}
+
+// Tricycles operate from a terminal within a service area rather than along a
+// guaranteed road line. Keeping this separate from TransportRoute prevents the
+// journey planner from presenting an invented fixed route.
+model TricycleTerminal {
+  id                       String   @id @default(uuid())
+  name                     String
+  municipality             String
+  barangay                 String?
+  latitude                 Float
+  longitude                Float
+  coverageRadiusKm         Float    @default(2)
+  // Administrator-verified road connectors missing from the public map.
+  // Each connector is stored as a polyline of [latitude, longitude] points.
+  accessPaths              Json?
+  fareMin                  Float?
+  fareMax                  Float?
+  operatingHours           String?
+  notes                    String?
+  returnAvailabilityNotice String?  @default("Return trips depend on an available passing tricycle.")
+  isActive                 Boolean  @default(true)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+}
+
+model PartnerBusiness {
+  id           String          @id @default(uuid())
+  name         String
+  category     String
+  address      String
+  municipality String
+  latitude     Float?
+  longitude    Float?
+  contact      String?
+  isActive     Boolean         @default(true)
+  offers       DiscountOffer[]
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+}
+
+model DiscountOffer {
+  id              String               @id @default(uuid())
+  businessId      String
+  badgeLandmarkId String?
+  title           String
+  description     String
+  discountLabel   String
+  startsAt        DateTime?
+  endsAt          DateTime?
+  isActive        Boolean              @default(true)
+  business        PartnerBusiness      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  badgeLandmark   Landmark?            @relation(fields: [badgeLandmarkId], references: [id])
+  redemptions     DiscountRedemption[]
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+}
+
+model DiscountRedemption {
+  id         String        @id @default(uuid())
+  offerId    String
+  userId     String
+  code       String        @unique
+  status     String        @default("issued")
+  redeemedAt DateTime?
+  offer      DiscountOffer @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime      @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  actorId   String
+  action    String
+  entity    String
+  entityId  String
+  details   Json?
+  actor     User     @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
