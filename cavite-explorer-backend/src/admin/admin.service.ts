@@ -126,20 +126,66 @@ export class AdminService {
     const partnerUrl = process.env.PARTNER_INVITE_WEB_URL || `${process.env.MOBILE_BACKEND_URL || process.env.BACKEND_URL || 'http://10.0.2.2:3000'}/auth/partner-invite`;
     const inviteBaseUrl = data.role === 'partner' ? partnerUrl : `${adminUrl.replace(/\/$/, '')}/accept-invite`;
     const inviteUrl = `${inviteBaseUrl}${inviteBaseUrl.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
+    const subject = `You are invited to Cavite Explorer as ${data.role}`;
+    const text = `You have been invited to Cavite Explorer as ${data.role}. Open this secure invitation link to continue. It expires in 7 days:\n\n${inviteUrl}`;
+    const html = `<div style="font-family:Arial,sans-serif;color:#202520;line-height:1.5;max-width:560px"><p>You have been invited to <strong>Cavite Explorer</strong> as <strong>${data.role}</strong>.</p><p style="margin:24px 0"><a href="${inviteUrl}" style="display:inline-block;background:#176a50;color:#ffffff;text-decoration:none;font-weight:700;padding:13px 20px;border-radius:10px">Open secure invitation</a></p><p style="font-size:13px;color:#66706a">If the button does not open, use this link:<br><a href="${inviteUrl}" style="color:#176a50;word-break:break-all">${inviteUrl}</a></p><p>This secure invitation expires in 7 days.</p></div>`;
+
+    const brevoApiKey = process.env.BREVO_API_KEY;
+    if (brevoApiKey) {
+      const senderEmail = process.env.BREVO_SENDER_EMAIL || process.env.SMTP_USER;
+      const senderName = process.env.BREVO_SENDER_NAME || 'Cavite Explorer & Tourism';
+      if (!senderEmail) {
+        throw new BadRequestException('Invitation was created, but BREVO_SENDER_EMAIL is not configured.');
+      }
+      const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'api-key': brevoApiKey,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          sender: { name: senderName, email: senderEmail },
+          to: [{ email, ...(data.name?.trim() ? { name: data.name.trim() } : {}) }],
+          subject,
+          textContent: text,
+          htmlContent: html,
+        }),
+      });
+      const resultText = await response.text();
+      if (!response.ok) {
+        console.error(`Brevo invitation delivery failed: status=${response.status}; response=${resultText}`);
+        throw new BadRequestException('The invitation was created, but the email provider rejected delivery. Check the verified Brevo sender and API key.');
+      }
+      let messageId: string | undefined;
+      try {
+        messageId = (JSON.parse(resultText) as { messageId?: string }).messageId;
+      } catch {
+        messageId = undefined;
+      }
+      console.log(`Invitation email accepted by Brevo: role=${data.role}; recipient=${email}; messageId=${messageId || 'unknown'}`);
+      return {
+        invite,
+        inviteUrl,
+        emailed: true,
+        delivery: { accepted: [email], rejected: [], messageId: messageId || null, provider: 'brevo' },
+      };
+    }
+
     const smtpHost = process.env.SMTP_HOST;
     const smtpUser = process.env.SMTP_USER;
     const smtpPassword = process.env.SMTP_PASSWORD;
     const smtpFrom = process.env.SMTP_FROM || smtpUser;
     if (!smtpHost || !smtpUser || !smtpPassword || !smtpFrom) {
-      throw new BadRequestException('Invitation was created, but email delivery is not configured. Add SMTP settings to the backend .env.');
+      throw new BadRequestException('Invitation was created, but email delivery is not configured. Add BREVO_API_KEY and BREVO_SENDER_EMAIL, or SMTP settings for local development.');
     }
     const transporter = nodemailer.createTransport({ host: smtpHost, port: Number(process.env.SMTP_PORT || 465), secure: (process.env.SMTP_SECURE || 'true') === 'true', auth: { user: smtpUser, pass: smtpPassword } });
     const delivery = await transporter.sendMail({
       from: smtpFrom,
       to: email,
-      subject: `You are invited to Cavite Explorer as ${data.role}`,
-      text: `You have been invited to Cavite Explorer as ${data.role}. Open this secure invitation link to continue. It expires in 7 days:\n\n${inviteUrl}`,
-      html: `<div style="font-family:Arial,sans-serif;color:#202520;line-height:1.5;max-width:560px"><p>You have been invited to <strong>Cavite Explorer</strong> as <strong>${data.role}</strong>.</p><p style="margin:24px 0"><a href="${inviteUrl}" style="display:inline-block;background:#176a50;color:#ffffff;text-decoration:none;font-weight:700;padding:13px 20px;border-radius:10px">Open secure invitation</a></p><p style="font-size:13px;color:#66706a">If the button does not open, use this link:<br><a href="${inviteUrl}" style="color:#176a50;word-break:break-all">${inviteUrl}</a></p><p>This secure invitation expires in 7 days.</p></div>`,
+      subject,
+      text,
+      html,
     });
     const accepted = (delivery.accepted || []).map(String);
     const rejected = (delivery.rejected || []).map(String);

@@ -54,6 +54,12 @@ services:
         value: https://cavite-explorer-admin.dogoodiecommunity.chatgpt.site
       - key: PARTNER_INVITE_URL
         value: caviteexplorer://accept-invite
+      - key: BREVO_API_KEY
+        sync: false
+      - key: BREVO_SENDER_EMAIL
+        value: explorecavite26@gmail.com
+      - key: BREVO_SENDER_NAME
+        value: Cavite Explorer & Tourism
       - key: TRANSPORT_MAX_BOARDING_WALK_METERS
         value: 3000
       - key: TRANSPORT_MAX_DESTINATION_WALK_METERS
