@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 // Import your AuthService to get the token!
 import '../services/auth_service.dart';
+import '../services/api_service.dart';
 import 'live_trip_screen.dart';
 
 class SavedTripsScreen extends StatefulWidget {
@@ -45,7 +46,7 @@ class _SavedTripsScreenState extends State<SavedTripsScreen> {
         return;
       }
 
-      final url = Uri.parse('http://10.0.2.2:3000/trips');
+      final url = ApiService.uri('/trips');
       final response = await http.get(
         url,
         headers: {
@@ -90,7 +91,7 @@ class _SavedTripsScreenState extends State<SavedTripsScreen> {
       final token = userData?['token'];
       
       final response = await http.delete(
-        Uri.parse('http://10.0.2.2:3000/trips/$tripId'),
+        ApiService.uri('/trips/$tripId'),
         headers: {'Authorization': 'Bearer $token'},
       );
 

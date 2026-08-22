@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../services/auth_service.dart';
+import '../services/api_service.dart';
 import '../screens/login_screen.dart';
 import '../screens/settings_screen.dart';
 import '../screens/badge_collection_screen.dart';
@@ -38,9 +39,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     if (userData != null && userData['token'] != null) {
       try {
-        // Fetch fresh data from NestJS (Using 10.0.2.2 for Android Emulator)
         final response = await http.get(
-          Uri.parse('http://10.0.2.2:3000/auth/me'),
+          ApiService.uri('/auth/me'),
           headers: {'Authorization': 'Bearer ${userData['token']}'},
         );
 

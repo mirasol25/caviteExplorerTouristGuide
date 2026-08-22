@@ -2,8 +2,10 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class ApiService {
-  // Replace with your IP address if testing on a real device
-  static const String baseUrl = 'http://10.0.2.2:3000'; 
+  static const String baseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'https://cavite-explorer-backend.onrender.com',
+  );
 
   static Uri uri(String path) => Uri.parse('$baseUrl$path');
 

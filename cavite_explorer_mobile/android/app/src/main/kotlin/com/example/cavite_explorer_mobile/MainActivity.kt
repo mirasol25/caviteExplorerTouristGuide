@@ -1,4 +1,4 @@
-package com.example.cavite_explorer_mobile
+package ph.caviteexplorer.app
 
 import io.flutter.embedding.android.FlutterActivity
 

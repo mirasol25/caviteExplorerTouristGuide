@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 
 // Make sure these paths match your project structure!
 import '../services/auth_service.dart';
+import '../services/api_service.dart';
 import '../screens/signup_screen.dart'; 
 import '../screens/forgot_password_screen.dart';
 import '../screens/new_password_screen.dart';
@@ -56,7 +57,7 @@ class _LoginScreenState extends State<LoginScreen> {
           try {
             // Trade token for profile data from NestJS
             final response = await http.get(
-              Uri.parse('http://10.0.2.2:3000/auth/me'),
+              ApiService.uri('/auth/me'),
               headers: {
                 'Authorization': 'Bearer $token', 
               },
@@ -107,7 +108,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _handleGoogleLogin() async {
-    final Uri backendUrl = Uri.parse('http://10.0.2.2:3000/auth/google?client=mobile');
+    final Uri backendUrl = ApiService.uri('/auth/google?client=mobile');
     
     try {
       if (!await launchUrl(backendUrl, mode: LaunchMode.externalApplication)) {
@@ -129,7 +130,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       final response = await http.post(
-        Uri.parse('http://10.0.2.2:3000/auth/login'),
+        ApiService.uri('/auth/login'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'email': _emailController.text.trim(),

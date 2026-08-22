@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../services/api_service.dart';
 
 class NewPasswordScreen extends StatefulWidget {
   final String token; // We receive the token from the deep link!
@@ -45,7 +46,7 @@ class _NewPasswordScreenState extends State<NewPasswordScreen> {
 
     try {
       final response = await http.post(
-        Uri.parse('http://10.0.2.2:3000/auth/reset-password'),
+        ApiService.uri('/auth/reset-password'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'token': widget.token, // Pass the token to NestJS

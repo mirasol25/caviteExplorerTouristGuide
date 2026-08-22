@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../services/api_service.dart';
 
 class PasswordSecurityScreen extends StatefulWidget {
   final String email;
@@ -22,7 +23,7 @@ class _PasswordSecurityScreenState extends State<PasswordSecurityScreen> {
     try {
       // Calling the endpoint you already built in your NestJS AuthController!
       final response = await http.post(
-        Uri.parse('http://10.0.2.2:3000/auth/forgot-password'),
+        ApiService.uri('/auth/forgot-password'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'email': widget.email}),
       );

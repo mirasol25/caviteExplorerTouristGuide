@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../services/auth_service.dart';
+import '../services/api_service.dart';
 
 class EditProfileScreen extends StatefulWidget {
   final Map<String, dynamic> currentData;
@@ -76,7 +77,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       if (token == null) return;
 
       final response = await http.post(
-        Uri.parse('http://10.0.2.2:3000/auth/update-profile'),
+        ApiService.uri('/auth/update-profile'),
         headers: {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer $token',
