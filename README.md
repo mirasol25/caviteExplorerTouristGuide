@@ -87,6 +87,13 @@ OpenStreetMap / Leaflet <------------- map tiles, search, and route visualizatio
 
 The commute engine treats administrator-verified transport data as the source of truth. AI helps present the result in understandable language; it does not invent replacement routes.
 
+## Known limitations
+
+- **Transportation-route data is still incomplete.** The current database does not yet cover every jeepney, modern jeepney, bus, multicab, UV Express, or tricycle service in Cavite and nearby cities.
+- Commute suggestions are limited to the routes and transfer connections that administrators or editors have already mapped and verified. A valid local route may therefore be missing from the results.
+- Route names, signboards, fares, stops, schedules, and road paths can change. Transport records require continued field validation and regular updates before the system is used as a complete public commuting reference.
+- Users should treat the current commute feature as a field-testing guide and confirm critical trip details locally when a route has limited or outdated coverage.
+
 ## Repository layout
 
 ```text
