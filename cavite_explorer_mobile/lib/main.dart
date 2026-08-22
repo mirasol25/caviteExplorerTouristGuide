@@ -26,7 +26,12 @@ Future<void> main() async {
     debugPrint('Flutter framework error: ${details.exceptionAsString()}');
   };
   await AuthService.initializeSession();
-  await VisitTrackingController.instance.initialize();
+  try {
+    await VisitTrackingController.instance.initialize();
+  } catch (error, stackTrace) {
+    debugPrint('Visit tracking initialization failed: $error');
+    debugPrintStack(stackTrace: stackTrace);
+  }
   debugPrint('Cavite Explorer: Flutter application starting');
   runApp(const CaviteExplorerApp());
 }
