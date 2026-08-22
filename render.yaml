@@ -29,11 +29,11 @@ services:
       - key: GROQ_MODEL
         value: openai/gpt-oss-120b
       - key: FRONTEND_URL
-        sync: false
+        value: https://cavite-explorer-admin.dogoodiecommunity.chatgpt.site
       - key: ADMIN_WEB_URL
-        sync: false
+        value: https://cavite-explorer-admin.dogoodiecommunity.chatgpt.site
       - key: CORS_ORIGINS
-        sync: false
+        value: https://cavite-explorer-admin.dogoodiecommunity.chatgpt.site
       - key: BACKEND_URL
         sync: false
       - key: WEB_BACKEND_URL
@@ -49,9 +49,9 @@ services:
       - key: MOBILE_RESET_URL
         value: caviteexplorer://reset-password
       - key: WEB_RESET_URL
-        sync: false
+        value: https://cavite-explorer-admin.dogoodiecommunity.chatgpt.site/reset-password
       - key: ADMIN_INVITE_WEB_URL
-        sync: false
+        value: https://cavite-explorer-admin.dogoodiecommunity.chatgpt.site
       - key: PARTNER_INVITE_URL
         value: caviteexplorer://accept-invite
       - key: TRANSPORT_MAX_BOARDING_WALK_METERS
