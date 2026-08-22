@@ -12,6 +12,7 @@ import 'package:latlong2/latlong.dart';
 
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
+import '../services/background_tracking_service.dart';
 import '../services/location_service.dart';
 
 class _NavigationLeg {
@@ -83,6 +84,7 @@ class _LiveTripScreenState extends State<LiveTripScreen> {
   });
   final DateTime _tripStartedAt = DateTime.now();
   String? _lastAlertKey;
+  String? _lastPublishedCommuteState;
 
   final Map<int, int> _legProgress = {};
   final Set<int> _completedLegs = {};
@@ -212,6 +214,7 @@ class _LiveTripScreenState extends State<LiveTripScreen> {
     _inferCompletedLegs();
     _prepareCurrentStep(skipStartingStep: true);
     _startLocationTracking();
+    unawaited(BackgroundTrackingService.startCommute(widget.trip));
   }
 
   void _inferCompletedLegs() {
@@ -370,12 +373,12 @@ class _LiveTripScreenState extends State<LiveTripScreen> {
       });
     }
     if (_tripCompleted) {
-      unawaited(_checkInForBadge(position));
       return;
     }
     _evaluateNavigation(position, speed);
     _updateOffRouteState(position);
     unawaited(_refreshWalkingRoute(position));
+    _publishCommuteState();
   }
 
   List<LatLng> _decodePolyline6(String encoded) {
@@ -831,14 +834,12 @@ class _LiveTripScreenState extends State<LiveTripScreen> {
       unawaited(_syncProgress(status: 'COMPLETED'));
     }
     _sendNavigationAlert('trip-arrived', strong: true);
-    _startBadgeCountdown();
-    final position = _currentPosition;
-    if (position != null) unawaited(_checkInForBadge(position, force: true));
-    if (!_arrivalSummaryShown) {
-      _arrivalSummaryShown = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _showArrivalSummary();
-      });
+    BackgroundTrackingService.finishCommute();
+    final landmark = widget.trip['landmark'];
+    if (landmark is Map) {
+      unawaited(BackgroundTrackingService.startVisit(
+        Map<String, dynamic>.from(landmark),
+      ));
     }
   }
 
@@ -875,7 +876,22 @@ class _LiveTripScreenState extends State<LiveTripScreen> {
 
   Future<void> _endTrip() async {
     await _syncProgress(status: 'CANCELLED');
+    BackgroundTrackingService.finishCommute();
     if (mounted) Navigator.pop(context);
+  }
+
+  void _publishCommuteState() {
+    if (_tripCompleted) return;
+    final tripId = widget.trip['id']?.toString() ?? '';
+    if (tripId.isEmpty) return;
+    final key = '$_currentStep|$_phase|$_statusLabel|$_currentInstruction';
+    if (_lastPublishedCommuteState == key) return;
+    _lastPublishedCommuteState = key;
+    BackgroundTrackingService.updateCommute(
+      tripId: tripId,
+      status: _statusLabel,
+      instruction: _currentInstruction,
+    );
   }
 
   @override
@@ -1771,8 +1787,7 @@ class _LiveTripScreenState extends State<LiveTripScreen> {
             (visit['remainingSeconds'] as num?)?.round() ?? required,
           );
           final accumulated = math.max(0, required - remaining);
-          final progress =
-              (accumulated / required).clamp(0.0, 1.0).toDouble();
+          final progress = (accumulated / required).clamp(0.0, 1.0).toDouble();
           final accent = earned
               ? const Color(0xFF198754)
               : paused || reset || outside
@@ -1926,9 +1941,11 @@ class _LiveTripScreenState extends State<LiveTripScreen> {
                     const SizedBox(height: 20),
                     Row(
                       children: [
-                        _summaryValue(Icons.schedule, '$minutes min', 'Travel time'),
+                        _summaryValue(
+                            Icons.schedule, '$minutes min', 'Travel time'),
                         _summaryValue(Icons.directions_bus, '$rides', 'Rides'),
-                        _summaryValue(Icons.payments_outlined, _fareText, 'Fare'),
+                        _summaryValue(
+                            Icons.payments_outlined, _fareText, 'Fare'),
                       ],
                     ),
                     const SizedBox(height: 20),
@@ -1951,7 +1968,8 @@ class _LiveTripScreenState extends State<LiveTripScreen> {
                         ),
                         child: Text(
                           earned ? 'Finish trip' : 'Finish without badge',
-                          style: GoogleFonts.poppins(fontWeight: FontWeight.w700),
+                          style:
+                              GoogleFonts.poppins(fontWeight: FontWeight.w700),
                         ),
                       ),
                     ),

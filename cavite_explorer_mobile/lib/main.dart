@@ -1,24 +1,185 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/map_preview_screen.dart';
 import 'screens/profile_screen.dart';
+import 'services/api_service.dart';
+import 'services/background_tracking_service.dart';
+import 'services/location_service.dart';
+import 'services/notification_service.dart';
+import 'widgets/visit_tracking_overlay.dart';
 
-void main() {
+final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   FlutterError.onError = (details) {
     FlutterError.presentError(details);
     debugPrint('Flutter framework error: ${details.exceptionAsString()}');
   };
+  await VisitTrackingController.instance.initialize();
   debugPrint('Cavite Explorer: Flutter application starting');
   runApp(const CaviteExplorerApp());
 }
 
-class CaviteExplorerApp extends StatelessWidget {
+class CaviteExplorerApp extends StatefulWidget {
   const CaviteExplorerApp({super.key});
+
+  @override
+  State<CaviteExplorerApp> createState() => _CaviteExplorerAppState();
+}
+
+class _CaviteExplorerAppState extends State<CaviteExplorerApp>
+    with WidgetsBindingObserver {
+  StreamSubscription<String>? _notificationSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _notificationSubscription =
+        notificationPayloads.stream.listen(_openNotificationPayload);
+    VisitTrackingController.instance.unlockedBadge.addListener(_showUnlock);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final initial = await NotificationService.initialPayload();
+      if (initial != null) await _openNotificationPayload(initial);
+      await _offerBackgroundAwareness();
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _notificationSubscription?.cancel();
+    VisitTrackingController.instance.unlockedBadge.removeListener(_showUnlock);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final resumed = state == AppLifecycleState.resumed;
+    BackgroundTrackingService.setAppForeground(resumed);
+    if (resumed) {
+      unawaited(BackgroundTrackingService.refreshLandmarkAwareness());
+    }
+  }
+
+  void _showUnlock() {
+    final state = VisitTrackingController.instance.unlockedBadge.value;
+    final context = appNavigatorKey.currentContext;
+    if (state == null || context == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final currentContext = appNavigatorKey.currentContext;
+      if (currentContext == null) return;
+      VisitTrackingController.instance.consumeUnlock();
+      await showBadgeUnlockDialog(currentContext, state);
+    });
+  }
+
+  Future<void> _offerBackgroundAwareness() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool('background_awareness_prompted') == true ||
+        await BackgroundTrackingService.isAwarenessEnabled) {
+      return;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+    final context = appNavigatorKey.currentContext;
+    if (context == null || !context.mounted) return;
+    final enable = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.explore_rounded,
+            color: Color(0xFF176A50), size: 34),
+        title: const Text('Discover landmarks nearby'),
+        content: const Text(
+          'Allow background location and notifications to discover nearby landmarks, keep badge visits running, and continue live commute guidance when the app is minimized.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Maybe later'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Enable alerts'),
+          ),
+        ],
+      ),
+    );
+    await prefs.setBool('background_awareness_prompted', true);
+    if (enable != true) return;
+    final enabled = await BackgroundTrackingService.requestAndEnableAwareness();
+    if (enabled) return;
+    final currentContext = appNavigatorKey.currentContext;
+    if (currentContext == null || !currentContext.mounted) return;
+    final open = await showDialog<bool>(
+      context: currentContext,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Allow location all the time'),
+        content: const Text(
+          'Android requires “Allow all the time” location access for landmark alerts while Cavite Explorer is in the background. You can enable it in App permissions > Location.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Not now'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Open settings'),
+          ),
+        ],
+      ),
+    );
+    if (open == true) await openAppSettings();
+  }
+
+  Future<void> _openNotificationPayload(String payload) async {
+    final parts = payload.split(':');
+    if (parts.length != 2) return;
+    final kind = parts.first;
+    final id = parts.last;
+    if (kind == 'visit') return;
+    if (kind == 'commute') {
+      // The active live-commute route remains in the navigator stack and is
+      // restored automatically when the notification brings the app forward.
+      return;
+    }
+    try {
+      final landmarks = await ApiService.getLandmarks();
+      final value = landmarks.whereType<Map>().cast<Map>().firstWhere(
+            (landmark) => landmark['id']?.toString() == id,
+          );
+      final place = Map<String, dynamic>.from(value);
+      final position = await LocationService.promptLocationOnce();
+      final navigator = appNavigatorKey.currentState;
+      if (navigator == null) return;
+      await navigator.push(MaterialPageRoute(
+        builder: (_) => MapPreviewScreen(
+          place: place,
+          userPosition: position,
+        ),
+      ));
+      if (kind == 'badge') {
+        final state = VisitTrackingController.instance.visit.value;
+        final context = appNavigatorKey.currentContext;
+        if (state != null && context != null) {
+          await showBadgeUnlockDialog(context, state);
+        }
+      }
+    } catch (error) {
+      debugPrint('Could not open notification destination: $error');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: appNavigatorKey,
       title: 'Cavite Explorer',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
@@ -33,6 +194,10 @@ class CaviteExplorerApp extends StatelessWidget {
         '/login': (context) => const LoginScreen(),
         '/profile': (context) => const ProfileScreen(),
       },
+      builder: (context, child) => VisitTrackingOverlay(
+        child: child ?? const SizedBox.shrink(),
+        navigatorKey: appNavigatorKey,
+      ),
     );
   }
 }

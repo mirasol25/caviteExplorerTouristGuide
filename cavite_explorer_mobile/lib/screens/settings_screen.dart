@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../screens/edit_profile_screen.dart';
 import '../screens/password_security_screen.dart';
 import '../services/location_service.dart';
+import '../services/background_tracking_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   final Map<String, dynamic> profileData;
@@ -15,11 +16,18 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _isLocationOn = false;
+  bool _backgroundAlertsOn = false;
 
   @override
   void initState() {
     super.initState();
     _loadLocationStatus();
+    _loadBackgroundAlertStatus();
+  }
+
+  Future<void> _loadBackgroundAlertStatus() async {
+    final active = await BackgroundTrackingService.isAwarenessEnabled;
+    if (mounted) setState(() => _backgroundAlertsOn = active);
   }
 
   // Find out the current status when the screen opens
@@ -40,21 +48,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
         backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.black87, size: 20),
+          icon:
+              const Icon(Icons.arrow_back_ios, color: Colors.black87, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
-        title: Text("Settings", style: GoogleFonts.poppins(color: Colors.black87, fontWeight: FontWeight.bold)),
+        title: Text("Settings",
+            style: GoogleFonts.poppins(
+                color: Colors.black87, fontWeight: FontWeight.bold)),
         centerTitle: true,
       ),
       body: ListView(
         padding: const EdgeInsets.all(24.0),
         children: [
-          Text(
-            "Account", 
-            style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[500], letterSpacing: 1.2)
-          ),
+          Text("Account",
+              style: GoogleFonts.poppins(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[500],
+                  letterSpacing: 1.2)),
           const SizedBox(height: 16),
-          
+
           // --- PERSONAL DETAILS ---
           _buildSettingsTile(
             context,
@@ -64,9 +77,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onTap: () async {
               final didUpdate = await Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => EditProfileScreen(currentData: widget.profileData)),
+                MaterialPageRoute(
+                    builder: (context) =>
+                        EditProfileScreen(currentData: widget.profileData)),
               );
-              if (didUpdate == true && mounted) Navigator.pop(context, true); 
+              if (didUpdate == true && mounted) Navigator.pop(context, true);
             },
           ),
           const SizedBox(height: 16),
@@ -80,44 +95,79 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onTap: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => PasswordSecurityScreen(email: widget.profileData['email'] ?? '')),
+                MaterialPageRoute(
+                    builder: (context) => PasswordSecurityScreen(
+                        email: widget.profileData['email'] ?? '')),
               );
             },
           ),
 
           const SizedBox(height: 32),
-          Text(
-            "App Preferences", 
-            style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.grey[500], letterSpacing: 1.2)
-          ),
+          Text("App Preferences",
+              style: GoogleFonts.poppins(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.grey[500],
+                  letterSpacing: 1.2)),
           const SizedBox(height: 16),
 
           // --- THE NEW LOCATION TOGGLE ---
           _buildSwitchTile(
-            icon: Icons.location_on_outlined,
-            title: "Location Access",
-            subtitle: "Use my location to find nearby historical sites",
-            value: _isLocationOn,
-            onChanged: (newValue) async {
-              // 1. Optimistically change the UI instantly
-              setState(() => _isLocationOn = newValue);
-              
-              // 2. Do the heavy lifting in the background
-              bool result = await LocationService.toggleLocation(newValue);
-              
-              // 3. If they tried to turn it on, but OS denied it (or opened settings), revert/update UI
-              if (newValue == true && result == false) {
-                setState(() => _isLocationOn = false);
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text("Please allow location access in your device settings.", style: GoogleFonts.poppins()),
-                      backgroundColor: Colors.orange,
-                    ),
-                  );
+              icon: Icons.location_on_outlined,
+              title: "Location Access",
+              subtitle: "Use my location to find nearby historical sites",
+              value: _isLocationOn,
+              onChanged: (newValue) async {
+                // 1. Optimistically change the UI instantly
+                setState(() => _isLocationOn = newValue);
+
+                // 2. Do the heavy lifting in the background
+                bool result = await LocationService.toggleLocation(newValue);
+
+                // 3. If they tried to turn it on, but OS denied it (or opened settings), revert/update UI
+                if (newValue == true && result == false) {
+                  setState(() => _isLocationOn = false);
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                            "Please allow location access in your device settings.",
+                            style: GoogleFonts.poppins()),
+                        backgroundColor: Colors.orange,
+                      ),
+                    );
+                  }
                 }
+              }),
+          const SizedBox(height: 16),
+          _buildSwitchTile(
+            icon: Icons.notifications_active_outlined,
+            title: "Background Landmark Alerts",
+            subtitle:
+                "Find nearby landmarks and continue badge visits when the app is minimized",
+            value: _backgroundAlertsOn,
+            onChanged: (newValue) async {
+              if (!newValue) {
+                await BackgroundTrackingService.disableAwareness();
+                if (mounted) setState(() => _backgroundAlertsOn = false);
+                return;
               }
-            }
+              final enabled =
+                  await BackgroundTrackingService.requestAndEnableAwareness();
+              if (!mounted) return;
+              setState(() => _backgroundAlertsOn = enabled);
+              if (!enabled) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      "Allow notifications and set Location to ‘Allow all the time’ in Android settings.",
+                      style: GoogleFonts.poppins(),
+                    ),
+                    backgroundColor: Colors.orange,
+                  ),
+                );
+              }
+            },
           ),
         ],
       ),
@@ -125,15 +175,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // Existing helper widget
-  Widget _buildSettingsTile(BuildContext context, {required IconData icon, required String title, required String subtitle, required VoidCallback onTap}) {
+  Widget _buildSettingsTile(BuildContext context,
+      {required IconData icon,
+      required String title,
+      required String subtitle,
+      required VoidCallback onTap}) {
     return Container(
       decoration: _cardDecoration(),
       child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         leading: _iconBox(icon),
-        title: Text(title, style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: Colors.black87)),
-        subtitle: Text(subtitle, style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[500])),
-        trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
+        title: Text(title,
+            style: GoogleFonts.poppins(
+                fontWeight: FontWeight.w600, color: Colors.black87)),
+        subtitle: Text(subtitle,
+            style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[500])),
+        trailing:
+            const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         onTap: onTap,
       ),
@@ -141,14 +200,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // New helper widget for the Toggle Switch
-  Widget _buildSwitchTile({required IconData icon, required String title, required String subtitle, required bool value, required ValueChanged<bool> onChanged}) {
+  Widget _buildSwitchTile(
+      {required IconData icon,
+      required String title,
+      required String subtitle,
+      required bool value,
+      required ValueChanged<bool> onChanged}) {
     return Container(
       decoration: _cardDecoration(),
       child: SwitchListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         secondary: _iconBox(icon),
-        title: Text(title, style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: Colors.black87)),
-        subtitle: Text(subtitle, style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[500])),
+        title: Text(title,
+            style: GoogleFonts.poppins(
+                fontWeight: FontWeight.w600, color: Colors.black87)),
+        subtitle: Text(subtitle,
+            style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[500])),
         activeColor: Colors.blueAccent,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         value: value,
@@ -163,14 +231,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
       color: Colors.white,
       borderRadius: BorderRadius.circular(16),
       border: Border.all(color: Colors.grey.shade100, width: 1),
-      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.01), blurRadius: 5, offset: const Offset(0, 2))],
+      boxShadow: [
+        BoxShadow(
+            color: Colors.black.withOpacity(0.01),
+            blurRadius: 5,
+            offset: const Offset(0, 2))
+      ],
     );
   }
 
   Widget _iconBox(IconData icon) {
     return Container(
       padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(color: Colors.blueAccent.withOpacity(0.1), shape: BoxShape.circle),
+      decoration: BoxDecoration(
+          color: Colors.blueAccent.withOpacity(0.1), shape: BoxShape.circle),
       child: Icon(icon, color: Colors.blueAccent),
     );
   }

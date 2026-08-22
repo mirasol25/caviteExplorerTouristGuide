@@ -177,4 +177,61 @@ export class BadgesService {
       },
     };
   }
+  async getMine(userId: string) {
+    const [earned, activeVisits, landmarks] = await Promise.all([
+      this.prisma.userBadge.findMany({
+        where: { userId },
+        select: {
+          landmarkId: true,
+          earnedAt: true,
+          landmark: {
+            select: {
+              id: true,
+              name: true,
+              badgeName: true,
+              badgeImage: true,
+              badgeDescription: true,
+            },
+          },
+        },
+        orderBy: { earnedAt: 'desc' },
+      }),
+      this.prisma.badgeVisit.findMany({
+        where: {
+          userId,
+          status: { in: ['ACTIVE', 'PAUSED', 'OUTSIDE', 'RESET'] },
+        },
+        include: { landmark: true },
+        orderBy: { updatedAt: 'desc' },
+      }),
+      this.prisma.landmark.findMany({
+        select: {
+          id: true,
+          name: true,
+          municipality: true,
+          barangay: true,
+          category: true,
+          badgeName: true,
+          badgeImage: true,
+          badgeDescription: true,
+          badgeIcon: true,
+          badgeColor: true,
+          badgeRequiredMinutes: true,
+        },
+        orderBy: { name: 'asc' },
+      }),
+    ]);
+    const earnedByLandmark = new Map(
+      earned.map((item) => [item.landmarkId, item]),
+    );
+    const collection = landmarks.map((landmark) => {
+      const award = earnedByLandmark.get(landmark.id);
+      return {
+        ...landmark,
+        earned: Boolean(award),
+        earnedAt: award?.earnedAt ?? null,
+      };
+    });
+    return { earned, activeVisits, collection };
+  }
 }

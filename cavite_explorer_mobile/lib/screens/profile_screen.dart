@@ -5,9 +5,10 @@ import 'package:http/http.dart' as http;
 
 import '../services/auth_service.dart';
 import '../screens/login_screen.dart';
-import '../screens/signup_screen.dart';
 import '../screens/settings_screen.dart';
-import '../screens/saved_trips_screen.dart'; // Adjust the path if your folder structure is slightly different
+import '../screens/badge_collection_screen.dart';
+import '../screens/visited_places_screen.dart';
+import '../screens/help_support_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -201,19 +202,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
           // --- MENU OPTIONS ---
           _buildMenuCard(
-            icon: Icons.bookmark_border, 
-            title: "My Saved Places", 
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const SavedTripsScreen(),
-                ),
-              );
-            },
+            icon: Icons.hiking_rounded,
+            title: "Visited Places",
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const VisitedPlacesScreen(),
+              ),
+            ),
           ),
-          _buildMenuCard(icon: Icons.map_outlined, title: "Trip History", onTap: () {}),
-          
+          _buildMenuCard(
+            icon: Icons.workspace_premium_outlined,
+            title: "My Badge Collection",
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const BadgeCollectionScreen(),
+              ),
+            ),
+          ),
           // --- SETTINGS HUB ---
           _buildMenuCard(
             icon: Icons.settings_outlined, 
@@ -231,7 +238,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
             }
           ),
           
-          _buildMenuCard(icon: Icons.help_outline, title: "Help & Support", onTap: () {}),
+          _buildMenuCard(
+            icon: Icons.help_outline,
+            title: "Help & Support",
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const HelpSupportScreen(),
+              ),
+            ),
+          ),
 
           const SizedBox(height: 32),
 

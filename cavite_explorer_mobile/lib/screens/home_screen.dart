@@ -8,6 +8,8 @@ import '../services/api_service.dart';
 import '../services/location_service.dart';
 import 'login_screen.dart';
 import 'profile_screen.dart';
+import 'badge_collection_screen.dart';
+import 'visited_places_screen.dart';
 import '../services/auth_service.dart';
 import '../screens/place_details_screen.dart';
 import '../screens/map_screen.dart'; // Make sure the path matches your folder structure
@@ -185,8 +187,16 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     // Prepare standard sections if not searching
-    final popularItems =
-        _allLandmarks.where((l) => l['category'] == 'Popular').toList();
+    final popularItems = List<dynamic>.from(_allLandmarks)
+      ..sort((a, b) {
+        final ratingA = (a['averageRating'] as num?)?.toDouble() ?? 0;
+        final ratingB = (b['averageRating'] as num?)?.toDouble() ?? 0;
+        final reviewsA = (a['reviewCount'] as num?)?.toDouble() ?? 0;
+        final reviewsB = (b['reviewCount'] as num?)?.toDouble() ?? 0;
+        final scoreA = ratingA * (1 + log(1 + reviewsA));
+        final scoreB = ratingB * (1 + log(1 + reviewsB));
+        return scoreB.compareTo(scoreA);
+      });
     List<dynamic> recommendedItems = List.from(_allLandmarks);
 
     if (_currentPosition != null) {
@@ -258,11 +268,6 @@ class _HomeScreenState extends State<HomeScreen> {
                           _buildPopularList(popularItems.isEmpty
                               ? _allLandmarks
                               : popularItems),
-
-                          const SizedBox(height: 35),
-                          _sectionHeader("Learn & Play", ""),
-                          const SizedBox(height: 15),
-                          _buildFeaturedCard(),
 
                           const SizedBox(height: 35),
                           _sectionHeader(
@@ -564,70 +569,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildFeaturedCard() {
-    return Container(
-      width: double.infinity,
-      height: 160,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        gradient: const LinearGradient(
-            colors: [Color(0xFF2C3E50), Color(0xFF3498DB)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight),
-        boxShadow: [
-          BoxShadow(
-              color: const Color(0xFF3498DB).withValues(alpha: 0.3),
-              blurRadius: 15,
-              offset: const Offset(0, 8))
-        ],
-      ),
-      child: Stack(
-        children: [
-          Positioned(
-              right: -20,
-              bottom: -20,
-              child: Icon(Icons.explore,
-                  size: 120, color: Colors.white.withValues(alpha: 0.1))),
-          Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text("Historical Minigame",
-                    style: GoogleFonts.poppins(
-                        color: Colors.white70,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 1.2)),
-                const SizedBox(height: 8),
-                Text("Find The Hidden\nArtifacts",
-                    style: GoogleFonts.poppins(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        height: 1.2)),
-                const Spacer(),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20)),
-                  child: Text("Play Now",
-                      style: GoogleFonts.poppins(
-                          color: const Color(0xFF2C3E50),
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12)),
-                )
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   // Used for both Recommendations AND Search Results
   Widget _buildGridList(List<dynamic> items) {
     if (items.isEmpty) {
@@ -705,8 +646,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         topRight: Radius.circular(20)),
                     child: item['images'] != null &&
                             (item['images'] as List).isNotEmpty
-                        ? Image.network(ApiService.assetUrl(item['images'][0]),
-                            fit: BoxFit.cover, width: double.infinity)
+                        ? _ResilientLandmarkImage(
+                            source: item['images'][0],
+                          )
                         : Container(color: Colors.grey[200]),
                   ),
                 ),
@@ -758,8 +700,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildFloatingBottomNav() {
     return Container(
-      margin: const EdgeInsets.only(bottom: 20, left: 30, right: 30),
-      padding: const EdgeInsets.symmetric(vertical: 15),
+      margin: const EdgeInsets.only(bottom: 20, left: 22, right: 22),
+      padding: const EdgeInsets.symmetric(vertical: 12),
       decoration: BoxDecoration(
         color: const Color(0xFF1A1A1A),
         borderRadius: BorderRadius.circular(40),
@@ -773,36 +715,62 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
-          _navIcon(Icons.home_rounded, true),
+          _navIcon(Icons.home_rounded, true, 'Home'),
           GestureDetector(
             onTap: () {
               Navigator.push(context,
                   MaterialPageRoute(builder: (context) => const MapScreen()));
             },
-            child: _navIcon(Icons.map_outlined, false),
+            child: _navIcon(Icons.map_outlined, false, 'Explore map'),
           ),
-          _navIcon(Icons.bookmark_border_rounded, false),
+          GestureDetector(
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const VisitedPlacesScreen(),
+              ),
+            ),
+            child: _navIcon(Icons.hiking_rounded, false, 'Visited places'),
+          ),
+          GestureDetector(
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const BadgeCollectionScreen(),
+              ),
+            ),
+            child: _navIcon(
+                Icons.workspace_premium_outlined, false, 'Badge collection'),
+          ),
           GestureDetector(
             onTap: () => Navigator.push(context,
                 MaterialPageRoute(builder: (context) => const ProfileScreen())),
-            child: _navIcon(Icons.person_outline_rounded, false),
+            child: _navIcon(Icons.person_outline_rounded, false, 'Profile'),
           ),
         ],
       ),
     );
   }
 
-  Widget _navIcon(IconData icon, bool isActive) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      padding: EdgeInsets.all(isActive ? 12 : 8),
-      decoration: BoxDecoration(
-          color: isActive
-              ? Colors.white.withValues(alpha: 0.1)
-              : Colors.transparent,
-          shape: BoxShape.circle),
-      child:
-          Icon(icon, color: isActive ? Colors.white : Colors.white54, size: 26),
+  Widget _navIcon(IconData icon, bool isActive, String label) {
+    return Tooltip(
+      message: label,
+      child: Semantics(
+        label: label,
+        button: true,
+        selected: isActive,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: EdgeInsets.all(isActive ? 11 : 8),
+          decoration: BoxDecoration(
+              color: isActive
+                  ? Colors.white.withValues(alpha: 0.1)
+                  : Colors.transparent,
+              shape: BoxShape.circle),
+          child: Icon(icon,
+              color: isActive ? Colors.white : Colors.white54, size: 24),
+        ),
+      ),
     );
   }
 }
@@ -854,18 +822,109 @@ class _AutoSlidingImagesState extends State<AutoSlidingImages> {
   @override
   Widget build(BuildContext context) {
     if (widget.images.isEmpty) return Container(color: Colors.grey[300]);
-    if (widget.images.length == 1)
-      return Image.network(ApiService.assetUrl(widget.images[0]),
-          fit: BoxFit.cover, width: double.infinity, height: double.infinity);
+    if (widget.images.length == 1) {
+      return _ResilientLandmarkImage(source: widget.images[0]);
+    }
 
     return PageView.builder(
       controller: _pageController,
       physics: const NeverScrollableScrollPhysics(),
       itemCount: widget.images.length,
       itemBuilder: (context, index) {
-        return Image.network(ApiService.assetUrl(widget.images[index]),
-            fit: BoxFit.cover, width: double.infinity, height: double.infinity);
+        return _ResilientLandmarkImage(source: widget.images[index]);
       },
+    );
+  }
+}
+
+class _ResilientLandmarkImage extends StatefulWidget {
+  final dynamic source;
+
+  const _ResilientLandmarkImage({required this.source});
+
+  @override
+  State<_ResilientLandmarkImage> createState() =>
+      _ResilientLandmarkImageState();
+}
+
+class _ResilientLandmarkImageState extends State<_ResilientLandmarkImage> {
+  Timer? _retryTimer;
+  int _attempt = 0;
+  bool _retryScheduled = false;
+
+  @override
+  void didUpdateWidget(covariant _ResilientLandmarkImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.source != widget.source) {
+      _retryTimer?.cancel();
+      _attempt = 0;
+      _retryScheduled = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    _retryTimer?.cancel();
+    super.dispose();
+  }
+
+  void _scheduleRetry() {
+    if (_retryScheduled || _attempt >= 2) return;
+    _retryScheduled = true;
+    _retryTimer = Timer(Duration(milliseconds: 700 + (_attempt * 900)), () {
+      if (!mounted) return;
+      setState(() {
+        _attempt++;
+        _retryScheduled = false;
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final baseUrl = ApiService.assetUrl(widget.source);
+    final parsed = Uri.tryParse(baseUrl);
+    final imageUrl = _attempt == 0 || parsed == null
+        ? baseUrl
+        : parsed.replace(queryParameters: {
+            ...parsed.queryParameters,
+            'retry': _attempt.toString(),
+          }).toString();
+    return Image.network(
+      imageUrl,
+      key: ValueKey(imageUrl),
+      fit: BoxFit.cover,
+      width: double.infinity,
+      height: double.infinity,
+      cacheWidth: 900,
+      loadingBuilder: (context, child, progress) =>
+          progress == null ? child : _imagePlaceholder(loading: true),
+      errorBuilder: (context, error, stackTrace) {
+        _scheduleRetry();
+        return _imagePlaceholder(loading: _attempt < 2);
+      },
+    );
+  }
+
+  Widget _imagePlaceholder({required bool loading}) {
+    return ColoredBox(
+      color: const Color(0xFFE9EFEA),
+      child: Center(
+        child: loading
+            ? const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  color: Color(0xFF176A50),
+                ),
+              )
+            : const Icon(
+                Icons.landscape_rounded,
+                color: Color(0xFF7B9188),
+                size: 34,
+              ),
+      ),
     );
   }
 }

@@ -25,6 +25,8 @@ class MapPreviewScreen extends StatefulWidget {
 }
 
 class _MapPreviewScreenState extends State<MapPreviewScreen> {
+  static const double _walkOnlyDirectMeters = 800;
+  static const double _walkOnlyRouteMeters = 1000;
   final MapController _mapController = MapController();
   Position? _currentPosition;
 
@@ -455,6 +457,61 @@ class _MapPreviewScreenState extends State<MapPreviewScreen> {
     return double.tryParse(configuredFare?.toString() ?? '');
   }
 
+  bool get _isWalkingOnly => _verifiedTransportRoute?['isWalkingOnly'] == true;
+
+  Future<Map<String, dynamic>?> _walkingOnlyJourney(
+    Position position,
+    LatLng destination,
+    String destinationName,
+  ) async {
+    final start = LatLng(position.latitude, position.longitude);
+    final directDistance = Geolocator.distanceBetween(
+      start.latitude,
+      start.longitude,
+      destination.latitude,
+      destination.longitude,
+    );
+    if (directDistance > _walkOnlyDirectMeters) return null;
+
+    final path = await _findWalkingPath(start, destination);
+    if (path.length < 2 || _pathDistance(path) > _walkOnlyRouteMeters) {
+      return null;
+    }
+    final geometry = path
+        .map((point) => [point.latitude, point.longitude])
+        .toList(growable: false);
+    final leg = <String, dynamic>{
+      'id': 'walking-only',
+      'name': 'Walk to $destinationName',
+      'mode': 'Walking',
+      'direction': 'walking',
+      'signboard': '',
+      'originName': 'Your location',
+      'destinationName': destinationName,
+      'estimatedFare': 0,
+      'baseFare': 0,
+      'geometry': geometry,
+      'boardingPoint': [start.latitude, start.longitude],
+      'dropOffPoint': [destination.latitude, destination.longitude],
+      'isWalkingOnly': true,
+    };
+    return {
+      'id': 'walking-only',
+      'name': 'Walk to $destinationName',
+      'mode': 'Walking',
+      'isWalkingOnly': true,
+      'estimatedFare': 0,
+      'baseFare': 0,
+      'transferCount': 0,
+      'distanceToBoardingMeters': 0,
+      'distanceFromDropOffMeters': 0,
+      'transferPoints': const <dynamic>[],
+      'recommendationProfile': 'walking',
+      'recommendationProfiles': const ['walking'],
+      'legs': [leg],
+    };
+  }
+
   int _journeyWalkingMeters(Map<String, dynamic> route) {
     int number(dynamic value) => value is num
         ? value.round()
@@ -537,6 +594,30 @@ class _MapPreviewScreenState extends State<MapPreviewScreen> {
   ) {
     final legs = _verifiedLegs(journey);
     if (legs.isEmpty) return [];
+    if (journey['isWalkingOnly'] == true) {
+      return [
+        {
+          'instruction': 'Starting point: $startAddress',
+          'type': 'walk',
+          'phase': 'start',
+          'landmark_query': 'none',
+        },
+        {
+          'instruction': 'Walk to $destinationName',
+          'type': 'walk',
+          'phase': 'walk_to_destination',
+          'legIndex': 0,
+          'landmark_query': destinationName,
+        },
+        {
+          'instruction': 'Arrival at $destinationName',
+          'type': 'arrival',
+          'phase': 'arrival',
+          'legIndex': 0,
+          'landmark_query': destinationName,
+        },
+      ];
+    }
     final transfers = journey['transferPoints'] as List<dynamic>? ?? [];
     final steps = <Map<String, dynamic>>[
       {
@@ -651,8 +732,14 @@ class _MapPreviewScreenState extends State<MapPreviewScreen> {
 
     final destCoords = _getPlaceCoords();
     if (selectedRoute == null) {
-      _verifiedTransportOptions =
-          await _findVerifiedTransportRoutes(position, destCoords);
+      final walkingJourney = await _walkingOnlyJourney(
+        position,
+        destCoords,
+        destinationName,
+      );
+      _verifiedTransportOptions = walkingJourney == null
+          ? await _findVerifiedTransportRoutes(position, destCoords)
+          : [walkingJourney];
       if (!mounted || requestId != _routeRequestId) return;
       _selectedTransportOption = 0;
       _verifiedTransportRoute = _verifiedTransportOptions.isEmpty
@@ -685,7 +772,11 @@ class _MapPreviewScreenState extends State<MapPreviewScreen> {
 
     final initialFare = _verifiedBaseFare(_verifiedTransportRoute);
     setState(() {
-      _estimatedFare = initialFare == null ? '₱--' : _formatFare(initialFare);
+      _estimatedFare = _isWalkingOnly
+          ? 'Walking'
+          : initialFare == null
+              ? '₱--'
+              : _formatFare(initialFare);
       _commuteSteps = _buildVerifiedCommuteSteps(
         _startAddress,
         destinationName,
@@ -1079,6 +1170,20 @@ Create exactly one ride step for every verified leg and place a transfer step be
     final verifiedLegs = _verifiedLegs(_verifiedTransportRoute);
     final verifiedTransfers =
         _verifiedTransportRoute?['transferPoints'] as List<dynamic>? ?? [];
+
+    if (_isWalkingOnly) {
+      for (final step in _commuteSteps) {
+        if (step['type'] == 'walk' || step['type'] == 'arrival') {
+          step['coords'] = destinationCoords;
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        _aiStepMarkers = [];
+        _isAiLoading = false;
+      });
+      return;
+    }
 
     // A verified journey is the source of truth for map signs. Groq writes the
     // guide, but it must not decide whether a physical point is a boarding,
@@ -1635,14 +1740,16 @@ Create exactly one ride step for every verified leg and place a transfer step be
                                       size: 14, color: Color(0xFF5D6E8B)),
                                   const SizedBox(width: 5),
                                   Text(
-                                      _verifiedTransportRoute != null
-                                          ? (_verifiedLegs(
-                                                          _verifiedTransportRoute)
-                                                      .length >
-                                                  1
-                                              ? "Verified total fare"
-                                              : "Verified base fare")
-                                          : "Estimated fare",
+                                      _isWalkingOnly
+                                          ? "Travel mode"
+                                          : _verifiedTransportRoute != null
+                                              ? (_verifiedLegs(
+                                                              _verifiedTransportRoute)
+                                                          .length >
+                                                      1
+                                                  ? "Verified total fare"
+                                                  : "Verified base fare")
+                                              : "Estimated fare",
                                       style: GoogleFonts.poppins(
                                           fontSize: 11,
                                           color: const Color(0xFF5D6E8B)))
@@ -1847,12 +1954,18 @@ Create exactly one ride step for every verified leg and place a transfer step be
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
-                                    Text("Public Commute Guide",
+                                    Text(
+                                        _isWalkingOnly
+                                            ? "Walking Guide"
+                                            : "Public Commute Guide",
                                         style: GoogleFonts.poppins(
                                             fontSize: 15,
                                             fontWeight: FontWeight.w700,
                                             color: const Color(0xFFB85B09))),
-                                    Text("Verified local transport details",
+                                    Text(
+                                        _isWalkingOnly
+                                            ? "Pedestrian route to the landmark"
+                                            : "Verified local transport details",
                                         style: GoogleFonts.poppins(
                                             fontSize: 10,
                                             color: const Color(0xFF8B7866))),
@@ -2035,7 +2148,9 @@ Create exactly one ride step for every verified leg and place a transfer step be
                                 child: Text(
                                     _isStartingCommute
                                         ? "Starting..."
-                                        : "Commute",
+                                        : _isWalkingOnly
+                                            ? "Start walking"
+                                            : "Commute",
                                     style: GoogleFonts.poppins(
                                         fontSize: 16,
                                         fontWeight: FontWeight.w600,

@@ -1,17 +1,30 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:http/http.dart' as http;
 import '../screens/map_preview_screen.dart';
 import '../services/api_service.dart';
+import '../services/auth_service.dart';
+import '../services/background_tracking_service.dart';
+import '../widgets/landmark_community_section.dart';
 
 class PlaceDetailsScreen extends StatefulWidget {
   final Map<String, dynamic> place;
   final Position? userPosition;
+  final int initialSection;
+  final bool openCommunityComposer;
 
-  const PlaceDetailsScreen({super.key, required this.place, this.userPosition});
+  const PlaceDetailsScreen({
+    super.key,
+    required this.place,
+    this.userPosition,
+    this.initialSection = 0,
+    this.openCommunityComposer = false,
+  });
 
   @override
   State<PlaceDetailsScreen> createState() => _PlaceDetailsScreenState();
@@ -20,7 +33,8 @@ class PlaceDetailsScreen extends StatefulWidget {
 class _PlaceDetailsScreenState extends State<PlaceDetailsScreen>
     with SingleTickerProviderStateMixin {
   int _currentImageIndex = 0;
-  int _detailSection = 0;
+  late int _detailSection;
+  bool _badgeClaimed = false;
   final PageController _imagePageController = PageController();
   Timer? _imageSlider;
   AnimationController? _badgePulse;
@@ -35,7 +49,10 @@ class _PlaceDetailsScreenState extends State<PlaceDetailsScreen>
   @override
   void initState() {
     super.initState();
+    _detailSection = widget.initialSection;
     _ensureBadgePulse();
+    _loadBadgeClaimed();
+    VisitTrackingController.instance.unlockedBadge.addListener(_badgeUnlocked);
     final images = widget.place['images'] is List
         ? List<dynamic>.from(widget.place['images'] as List)
         : <dynamic>[];
@@ -54,10 +71,83 @@ class _PlaceDetailsScreenState extends State<PlaceDetailsScreen>
 
   @override
   void dispose() {
+    VisitTrackingController.instance.unlockedBadge
+        .removeListener(_badgeUnlocked);
     _imageSlider?.cancel();
     _imagePageController.dispose();
     _badgePulse?.dispose();
     super.dispose();
+  }
+
+  void _badgeUnlocked() {
+    final badge = VisitTrackingController.instance.unlockedBadge.value;
+    if (badge?['landmarkId']?.toString() == widget.place['id']?.toString() &&
+        mounted) {
+      setState(() => _badgeClaimed = true);
+    }
+  }
+
+  Future<void> _loadBadgeClaimed() async {
+    try {
+      final user = await AuthService.getUser();
+      final token = user?['token']?.toString() ?? '';
+      if (token.isEmpty) return;
+      final response = await http.get(
+        ApiService.uri('/badges/me'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (response.statusCode < 200 || response.statusCode >= 300) return;
+      final body = json.decode(response.body) as Map<String, dynamic>;
+      final id = widget.place['id']?.toString();
+      final claimed = ((body['collection'] as List?) ?? const []).any(
+        (badge) => badge is Map &&
+            badge['id']?.toString() == id &&
+            badge['earned'] == true,
+      );
+      if (mounted) setState(() => _badgeClaimed = claimed);
+    } catch (_) {
+      // The landmark remains usable when collection status is unavailable.
+    }
+  }
+
+  Future<void> _openExplore() async {
+    if (_badgeClaimed) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          icon: const Icon(Icons.replay_circle_filled_rounded,
+              color: Color(0xFF176A50), size: 42),
+          title: Text('Revisit this place?',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.poppins(fontWeight: FontWeight.w700)),
+          content: Text(
+            'You already collected this landmark badge. You can revisit and explore again, but no additional badge will be awarded.',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.poppins(fontSize: 12.5, height: 1.5),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Continue revisit'),
+            ),
+          ],
+        ),
+      );
+      if (proceed != true || !mounted) return;
+    }
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MapPreviewScreen(
+          place: widget.place,
+          userPosition: widget.userPosition,
+        ),
+      ),
+    );
   }
 
   @override
@@ -327,13 +417,30 @@ class _PlaceDetailsScreenState extends State<PlaceDetailsScreen>
                                 color: Colors.grey[700],
                                 height: 1.58)),
                         const SizedBox(height: 22),
-                        _buildLandmarkBadge(
-                          name: badgeName,
-                          description: badgeDescription,
-                          iconName: _text(widget.place['badgeIcon']),
-                          imagePath: _text(widget.place['badgeImage']),
-                          color: badgeColor,
-                          requiredMinutes: badgeMinutes,
+                        ValueListenableBuilder<List<Map<String, dynamic>>>(
+                          valueListenable:
+                              VisitTrackingController.instance.visits,
+                          builder: (_, visits, __) {
+                            Map<String, dynamic>? activeVisit;
+                            final landmarkId = widget.place['id']?.toString();
+                            for (final visit in visits) {
+                              if (visit['landmarkId']?.toString() ==
+                                  landmarkId) {
+                                activeVisit = visit;
+                                break;
+                              }
+                            }
+                            return _buildLandmarkBadge(
+                              name: badgeName,
+                              description: badgeDescription,
+                              iconName: _text(widget.place['badgeIcon']),
+                              imagePath: _text(widget.place['badgeImage']),
+                              color: badgeColor,
+                              requiredMinutes: badgeMinutes,
+                              activeVisit: activeVisit,
+                              claimed: _badgeClaimed,
+                            );
+                          },
                         ),
                       ],
                       if (_detailSection == 1 && visitorInformation.isNotEmpty)
@@ -354,25 +461,26 @@ class _PlaceDetailsScreenState extends State<PlaceDetailsScreen>
                       if (_detailSection == 3 && reminders.isNotEmpty)
                         _buildInformationSection('Before you go',
                             Icons.info_outline_rounded, reminders),
+                      if (_detailSection == 4)
+                        LandmarkCommunitySection(
+                          place: widget.place,
+                          openComposerOnLoad: widget.openCommunityComposer,
+                        ),
                       const SizedBox(height: 26),
                       SizedBox(
                         width: double.infinity,
                         height: 58,
                         child: ElevatedButton.icon(
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => MapPreviewScreen(
-                                  place: widget.place,
-                                  userPosition: widget.userPosition,
-                                ),
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.explore_outlined,
+                          onPressed: _openExplore,
+                          icon: Icon(
+                              _badgeClaimed
+                                  ? Icons.replay_rounded
+                                  : Icons.explore_outlined,
                               color: Colors.white),
-                          label: Text("Explore this landmark",
+                          label: Text(
+                              _badgeClaimed
+                                  ? 'Revisit this place'
+                                  : 'Explore this landmark',
                               style: GoogleFonts.poppins(
                                   fontSize: 15,
                                   fontWeight: FontWeight.w700,
@@ -422,6 +530,11 @@ class _PlaceDetailsScreenState extends State<PlaceDetailsScreen>
 
   String _text(dynamic value) => value?.toString().trim() ?? '';
 
+  String _countdown(int seconds) {
+    final safe = math.max(0, seconds);
+    return '${(safe ~/ 60).toString().padLeft(2, '0')}:${(safe % 60).toString().padLeft(2, '0')}';
+  }
+
   List<String> _list(dynamic value) {
     if (value is! List) return const [];
     return value
@@ -462,7 +575,17 @@ class _PlaceDetailsScreenState extends State<PlaceDetailsScreen>
     required String imagePath,
     required Color color,
     required int requiredMinutes,
+    Map<String, dynamic>? activeVisit,
+    bool claimed = false,
   }) {
+    final inProgress = activeVisit != null && !claimed;
+    final visitStatus = activeVisit?['status']?.toString() ?? '';
+    final paused = visitStatus == 'PAUSED' || visitStatus == 'OUTSIDE';
+    final remaining = math.max(
+      0,
+      (activeVisit?['remainingSeconds'] as num?)?.round() ??
+          requiredMinutes * 60,
+    );
     return AnimatedBuilder(
       animation: _badgePulse ?? kAlwaysDismissedAnimation,
       builder: (context, child) => Transform.scale(
@@ -526,9 +649,18 @@ class _PlaceDetailsScreenState extends State<PlaceDetailsScreen>
                 borderRadius: BorderRadius.circular(99),
                 border: Border.all(color: color.withOpacity(.14))),
             child: Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(Icons.lock_outline_rounded, size: 12, color: color),
+              Icon(
+                  claimed
+                      ? Icons.check_circle_outline_rounded
+                      : inProgress
+                      ? paused
+                          ? Icons.pause_rounded
+                          : Icons.timer_outlined
+                      : Icons.lock_outline_rounded,
+                  size: 12,
+                  color: color),
               const SizedBox(width: 4),
-              Text('LOCKED',
+              Text(claimed ? 'COLLECTED' : inProgress ? 'IN PROGRESS' : 'LOCKED',
                   style: GoogleFonts.poppins(
                       fontSize: 8,
                       letterSpacing: .5,
@@ -598,20 +730,41 @@ class _PlaceDetailsScreenState extends State<PlaceDetailsScreen>
               height: 34,
               decoration: BoxDecoration(
                   color: color.withOpacity(.12), shape: BoxShape.circle),
-              child: Icon(Icons.location_on_outlined, size: 18, color: color),
+              child: Icon(
+                  claimed
+                      ? Icons.workspace_premium_rounded
+                      : inProgress
+                          ? Icons.timer_outlined
+                          : Icons.location_on_outlined,
+                  size: 18,
+                  color: color),
             ),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                Text('Stay for $requiredMinutes minutes to unlock',
+                Text(
+                    claimed
+                        ? 'Badge already collected'
+                        : inProgress
+                        ? paused
+                            ? 'Visit paused • ${_countdown(remaining)} remaining'
+                            : '${_countdown(remaining)} remaining to unlock'
+                        : 'Stay for $requiredMinutes minutes to unlock',
                     style: GoogleFonts.poppins(
                         fontSize: 11,
                         color: color,
                         fontWeight: FontWeight.w700)),
                 const SizedBox(height: 2),
-                Text('Your visit will be verified at this landmark.',
+                Text(
+                    claimed
+                        ? 'Revisit anytime and add more memories to your journey.'
+                        : inProgress
+                        ? paused
+                            ? 'Return within the grace period to keep your progress.'
+                            : 'Keep exploring while your visit is verified.'
+                        : 'Your visit will be verified at this landmark.',
                     style: GoogleFonts.poppins(
                         fontSize: 9.5,
                         color: const Color(0xFF718078))),
@@ -889,19 +1042,17 @@ class _PlaceDetailsScreenState extends State<PlaceDetailsScreen>
                 child: ElevatedButton.icon(
                   onPressed: () {
                     Navigator.pop(sheetContext);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => MapPreviewScreen(
-                          place: widget.place,
-                          userPosition: widget.userPosition,
-                        ),
-                      ),
-                    );
+                    Future<void>.delayed(Duration.zero, _openExplore);
                   },
-                  icon: const Icon(Icons.explore_outlined,
+                  icon: Icon(
+                      _badgeClaimed
+                          ? Icons.replay_rounded
+                          : Icons.explore_outlined,
                       color: Colors.white),
-                  label: Text('Explore this landmark',
+                  label: Text(
+                      _badgeClaimed
+                          ? 'Revisit this place'
+                          : 'Explore this landmark',
                       style: GoogleFonts.poppins(
                           fontSize: 14,
                           color: Colors.white,
@@ -978,48 +1129,73 @@ class _PlaceDetailsScreenState extends State<PlaceDetailsScreen>
   }) {
     final tabs = <({int index, String label})>[
       (index: 0, label: 'Overview'),
-      if (hasVisit) (index: 1, label: 'Plan visit'),
       if (hasHistory) (index: 2, label: 'History'),
+      if (hasVisit) (index: 1, label: 'Plan visit'),
       if (hasReminders) (index: 3, label: 'Reminders'),
+      (index: 4, label: 'Community'),
     ];
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: const Color(0xFFE7EDE7),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: tabs.map((tab) {
-            final selected = _detailSection == tab.index;
-            return Padding(
-              padding: const EdgeInsets.only(right: 3),
-              child: InkWell(
+    return LayoutBuilder(builder: (context, constraints) {
+      Widget tabButton(({int index, String label}) tab) {
+        final selected = _detailSection == tab.index;
+        return Expanded(
+          child: InkWell(
+            borderRadius: BorderRadius.circular(9),
+            onTap: () => setState(() => _detailSection = tab.index),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+              decoration: BoxDecoration(
+                color: selected
+                    ? const Color(0xFF176A50)
+                    : Colors.transparent,
                 borderRadius: BorderRadius.circular(9),
-                onTap: () => setState(() => _detailSection = tab.index),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 160),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-                  decoration: BoxDecoration(
-                    color:
-                        selected ? const Color(0xFF176A50) : Colors.transparent,
-                    borderRadius: BorderRadius.circular(9),
-                  ),
-                  child: Text(tab.label,
-                      style: GoogleFonts.poppins(
-                          fontSize: 11,
-                          color:
-                              selected ? Colors.white : const Color(0xFF5B7064),
-                          fontWeight: FontWeight.w700)),
+              ),
+              child: Text(
+                tab.label,
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.poppins(
+                  fontSize: 10.5,
+                  color:
+                      selected ? Colors.white : const Color(0xFF5B7064),
+                  fontWeight: FontWeight.w700,
                 ),
               ),
-            );
-          }).toList(),
+            ),
+          ),
+        );
+      }
+
+      final topTabs = tabs.take(3).toList();
+      final bottomTabs = tabs.skip(3).toList();
+      return Container(
+        padding: const EdgeInsets.all(4),
+        decoration: BoxDecoration(
+          color: const Color(0xFFE7EDE7),
+          borderRadius: BorderRadius.circular(12),
         ),
-      ),
-    );
+        child: Column(
+          children: [
+            Row(children: [
+              for (var i = 0; i < topTabs.length; i++) ...[
+                if (i > 0) const SizedBox(width: 4),
+                tabButton(topTabs[i]),
+              ],
+            ]),
+            if (bottomTabs.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Row(children: [
+                for (var i = 0; i < bottomTabs.length; i++) ...[
+                  if (i > 0) const SizedBox(width: 4),
+                  tabButton(bottomTabs[i]),
+                ],
+              ]),
+            ],
+          ],
+        ),
+      );
+    });
   }
 
   Widget _buildVisitSection(List<MapEntry<String, String>> entries) {

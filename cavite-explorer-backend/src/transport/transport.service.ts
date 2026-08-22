@@ -582,7 +582,7 @@ export class TransportService {
         const geometryKey = `${terminal.id}:outbound`;
         const tricyclePath = tricycleGeometry.get(geometryKey) || [terminalPoint, destination];
         const usesVerifiedRoadPath = verifiedTricycleGeometry.has(geometryKey);
-        const tricycleBoardingPoint = usesVerifiedRoadPath ? tricyclePath[0] : terminalPoint;
+        const tricycleBoardingPoint = terminalPoint;
         const tricycleDropOffPoint = usesVerifiedRoadPath ? tricyclePath[tricyclePath.length - 1] : destination;
         const tricycleLeg = {
           id: terminal.id,
@@ -651,7 +651,7 @@ export class TransportService {
         const geometryKey = `${terminal.id}:outbound`;
         const tricyclePath = tricycleGeometry.get(geometryKey) || [terminalPoint, destination];
         const usesVerifiedRoadPath = verifiedTricycleGeometry.has(geometryKey);
-        const tricycleBoardingPoint = usesVerifiedRoadPath ? tricyclePath[0] : terminalPoint;
+        const tricycleBoardingPoint = terminalPoint;
         const tricycleDropOffPoint = usesVerifiedRoadPath ? tricyclePath[tricyclePath.length - 1] : destination;
         const tricycleLeg = {
           id: terminal.id,
@@ -747,28 +747,28 @@ export class TransportService {
         return comparableWalking && comparableFare;
       }),
     );
-    // A tricycle is an on-demand terminal service. Terminal -> coverage is
-    // reliable; coverage -> terminal is explicitly marked as
-    // availability-dependent.
+    // A tricycle is an on-demand terminal service. Passengers must board at
+    // the administrator-pinned terminal. The coverage radius only determines
+    // which destinations that terminal can serve; it is never a boarding area.
     const tricycleCandidates = tricycleTerminals.flatMap((terminal) => {
       const terminalPoint: Point = [terminal.latitude, terminal.longitude];
       const startDistance = this.distance(start, terminalPoint);
       const destinationDistance = this.distance(destination, terminalPoint);
       const coverageMeters = terminal.coverageRadiusKm * 1000;
       const terminalToDestination = startDistance <= 350 && destinationDistance <= coverageMeters;
-      const destinationToTerminal = startDistance <= coverageMeters && destinationDistance <= 350;
-      if (!terminalToDestination && !destinationToTerminal) return [];
-      const returnTrip = destinationToTerminal;
-      const geometryKey = `${terminal.id}:${returnTrip ? 'return' : 'outbound'}`;
-      const geometry = tricycleGeometry.get(geometryKey) || [returnTrip ? start : terminalPoint, returnTrip ? terminalPoint : destination];
+      if (!terminalToDestination) return [];
+      const geometryKey = `${terminal.id}:outbound`;
+      const geometry = tricycleGeometry.get(geometryKey) || [terminalPoint, destination];
       const usesVerifiedRoadPath = verifiedTricycleGeometry.has(geometryKey);
-      const boardingPoint = usesVerifiedRoadPath ? geometry[0] : returnTrip ? start : terminalPoint;
-      const dropOffPoint = usesVerifiedRoadPath ? geometry[geometry.length - 1] : returnTrip ? terminalPoint : destination;
+      // Always keep the boarding pin at the saved terminal even if the road
+      // router snaps its first geometry point to a nearby road segment.
+      const boardingPoint = terminalPoint;
+      const dropOffPoint = usesVerifiedRoadPath ? geometry[geometry.length - 1] : destination;
       const accessWalk = this.distance(start, boardingPoint);
       const destinationWalk = this.distance(dropOffPoint, destination);
       const fare = terminal.fareMin ?? terminal.fareMax ?? null;
-      const leg = { id: terminal.id, name: terminal.name, mode: 'Tricycle', direction: returnTrip ? 'return_subject_to_availability' : 'outbound', signboard: terminal.name, originName: terminal.name, destinationName: returnTrip ? terminal.name : 'Requested destination', baseFare: terminal.fareMin, estimatedFare: fare, fareMin: terminal.fareMin, fareMax: terminal.fareMax, fareNotes: terminal.operatingHours, notes: returnTrip ? terminal.returnAvailabilityNotice : terminal.notes, roadNames: [], boardingName: returnTrip ? 'Your location' : terminal.name, boardingRoadName: null, dropOffName: returnTrip ? terminal.name : 'Requested destination', dropOffRoadName: null, geometry, boardingPoint, dropOffPoint, isOnDemand: true, usesVerifiedRoadPath, usesAdminAccessPath: adminTricycleGeometry.has(geometryKey), accessPaths: terminal.accessPaths, returnAvailabilityDependent: returnTrip, coverageRadiusKm: terminal.coverageRadiusKm };
-      return [{ ...leg, transferCount: 0, legs: [leg], transferPoints: [], distanceToBoardingMeters: Math.round(accessWalk), distanceFromDropOffMeters: Math.round(destinationWalk), score: accessWalk * 2 + destinationWalk * 2 + (returnTrip ? 250 : 0) }];
+      const leg = { id: terminal.id, name: terminal.name, mode: 'Tricycle', direction: 'outbound', signboard: terminal.name, originName: terminal.name, destinationName: 'Requested destination', baseFare: terminal.fareMin, estimatedFare: fare, fareMin: terminal.fareMin, fareMax: terminal.fareMax, fareNotes: terminal.operatingHours, notes: terminal.notes, roadNames: [], boardingName: terminal.name, boardingRoadName: null, dropOffName: 'Requested destination', dropOffRoadName: null, geometry, boardingPoint, dropOffPoint, isOnDemand: true, usesVerifiedRoadPath, usesAdminAccessPath: adminTricycleGeometry.has(geometryKey), accessPaths: terminal.accessPaths, returnAvailabilityDependent: false, coverageRadiusKm: terminal.coverageRadiusKm };
+      return [{ ...leg, transferCount: 0, legs: [leg], transferPoints: [], distanceToBoardingMeters: Math.round(accessWalk), distanceFromDropOffMeters: Math.round(destinationWalk), score: accessWalk * 2 + destinationWalk * 2 }];
     });
     const selectableCandidates = [
       ...practicalCandidates,

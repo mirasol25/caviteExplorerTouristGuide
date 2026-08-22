@@ -1,11 +1,16 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:http/http.dart' as http;
 
 import '../services/api_service.dart';
 import '../services/location_service.dart';
+import '../services/auth_service.dart';
+import '../services/background_tracking_service.dart';
 import 'map_preview_screen.dart';
 
 class MapScreen extends StatefulWidget {
@@ -20,11 +25,51 @@ class _MapScreenState extends State<MapScreen> {
   List<dynamic> _allLandmarks = [];
   Position? _currentPosition;
   bool _isLoading = true;
+  Set<String> _claimedLandmarkIds = <String>{};
 
   @override
   void initState() {
     super.initState();
+    VisitTrackingController.instance.unlockedBadge.addListener(_badgeUnlocked);
     _initializeMapData();
+  }
+
+  @override
+  void dispose() {
+    VisitTrackingController.instance.unlockedBadge
+        .removeListener(_badgeUnlocked);
+    super.dispose();
+  }
+
+  void _badgeUnlocked() {
+    final id = VisitTrackingController
+        .instance.unlockedBadge.value?['landmarkId']
+        ?.toString();
+    if (id != null && id.isNotEmpty && mounted) {
+      setState(() {
+        _claimedLandmarkIds.add(id);
+      });
+    }
+  }
+
+  Future<Set<String>> _loadClaimedLandmarks() async {
+    final token = (await AuthService.getUser())?['token']?.toString();
+    if (token == null || token.isEmpty) return <String>{};
+    try {
+      final response = await http.get(
+        ApiService.uri('/badges/me'),
+        headers: {'Authorization': 'Bearer $token'},
+      );
+      if (response.statusCode != 200) return <String>{};
+      final body = json.decode(response.body) as Map<String, dynamic>;
+      return ((body['earned'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((item) => item['landmarkId']?.toString() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toSet();
+    } catch (_) {
+      return <String>{};
+    }
   }
 
   Future<void> _initializeMapData() async {
@@ -33,12 +78,14 @@ class _MapScreenState extends State<MapScreen> {
       final results = await Future.wait([
         LocationService.promptLocationOnce(),
         ApiService.getLandmarks(),
+        _loadClaimedLandmarks(),
       ]);
 
       if (mounted) {
         setState(() {
           _currentPosition = results[0] as Position?;
           _allLandmarks = results[1] as List<dynamic>;
+          _claimedLandmarkIds = results[2] as Set<String>;
           _isLoading = false;
         });
       }
@@ -82,6 +129,8 @@ class _MapScreenState extends State<MapScreen> {
                       // Extract the first image, or use a fallback
                       final List<dynamic> images = place['images'] != null ? List<dynamic>.from(place['images']) : [];
                       final String imageUrl = ApiService.assetUrl(images.isNotEmpty ? images[0] : "https://via.placeholder.com/150?text=No+Image");
+                      final claimed = _claimedLandmarkIds
+                          .contains(place['id']?.toString());
                       
                       return Marker(
                         point: LatLng(lat, lng),
@@ -102,7 +151,11 @@ class _MapScreenState extends State<MapScreen> {
                           child: Container(
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white, width: 3),
+                              border: Border.all(
+                                  color: claimed
+                                      ? const Color(0xFF37A36B)
+                                      : Colors.white,
+                                  width: 3),
                               boxShadow: [
                                 BoxShadow(
                                   color: Colors.black.withOpacity(0.3),
@@ -112,16 +165,31 @@ class _MapScreenState extends State<MapScreen> {
                               ],
                             ),
                             child: ClipOval(
-                              child: Image.network(
-                                imageUrl,
-                                fit: BoxFit.cover,
-                                // If the image fails to load, fallback to a standard icon so the app doesn't crash
-                                errorBuilder: (context, error, stackTrace) {
-                                  return Container(
-                                    color: Colors.redAccent,
-                                    child: const Icon(Icons.location_on, color: Colors.white, size: 30),
-                                  );
-                                },
+                              child: Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  Image.network(
+                                    imageUrl,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) {
+                                      return Container(
+                                        color: Colors.redAccent,
+                                        child: const Icon(Icons.location_on,
+                                            color: Colors.white, size: 30),
+                                      );
+                                    },
+                                  ),
+                                  if (claimed) ...[
+                                    Container(
+                                      color: const Color(0xFF176A50)
+                                          .withValues(alpha: .42),
+                                    ),
+                                    const Center(
+                                      child: Icon(Icons.check_rounded,
+                                          color: Colors.white, size: 30),
+                                    ),
+                                  ],
+                                ],
                               ),
                             ),
                           ),

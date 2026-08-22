@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { NeonGuard } from '../auth/neon.guard';
 import { BadgesService } from './badges.service';
 
@@ -14,5 +14,9 @@ export class BadgesController {
     @Body() body: any,
   ) {
     return this.badgesService.checkIn(req.user.id, landmarkId, body);
+  }
+  @Get('me')
+  getMine(@Req() req: any) {
+    return this.badgesService.getMine(req.user.id);
   }
 }
