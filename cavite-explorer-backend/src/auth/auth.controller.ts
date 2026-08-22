@@ -73,7 +73,14 @@ export class AuthController {
     const responseText = await response.text();
     let data: any = {};
     try { data = responseText ? JSON.parse(responseText) : {}; } catch {}
-    return { ok: response.ok, status: response.status, data };
+    return {
+      ok: response.ok,
+      status: response.status,
+      statusText: response.statusText,
+      requestId: response.headers.get('x-neon-ret-request-id') || response.headers.get('x-trace-id'),
+      data,
+      raw: responseText,
+    };
   }
 
   @Get('partner-invite')
@@ -268,7 +275,13 @@ body{margin:0;background:#f6f6f0;color:#17241f;font-family:Arial,sans-serif;disp
           frontendUrl,
         );
         if (!verification.ok) {
-          console.error("NEON REJECTED VERIFICATION EMAIL:", verification.data);
+          console.error("NEON REJECTED VERIFICATION EMAIL:", {
+            status: verification.status,
+            statusText: verification.statusText,
+            requestId: verification.requestId,
+            response: verification.data,
+            raw: verification.raw,
+          });
           return res.status(502).json({
             message: 'Your account was created, but the verification email could not be sent. Tap Resend verification and try again.',
             accountCreated: true,
@@ -304,7 +317,13 @@ body{margin:0;background:#f6f6f0;color:#17241f;font-family:Arial,sans-serif;disp
       : `${this.publicBaseUrl(req)}/auth/email-verified`;
     const verification = await this.sendVerificationEmail(email, callbackURL, origin);
     if (!verification.ok) {
-      console.error('NEON REJECTED VERIFICATION RESEND:', verification.data);
+      console.error('NEON REJECTED VERIFICATION RESEND:', {
+        status: verification.status,
+        statusText: verification.statusText,
+        requestId: verification.requestId,
+        response: verification.data,
+        raw: verification.raw,
+      });
       return res.status(verification.status).json({ message: verification.data?.message || 'Could not resend the verification email.' });
     }
     return res.status(200).json({ message: 'Verification email sent. Please check your inbox and spam folder.' });
@@ -526,7 +545,13 @@ body{margin:0;background:#f6f6f0;color:#17241f;font-family:Arial,sans-serif;disp
       if (response.ok) {
         return res.status(200).json({ message: "Password reset link sent!" });
       } else {
-        console.error("❌ NEON REJECTED RESET:", data);
+        console.error("❌ NEON REJECTED RESET:", {
+          status: response.status,
+          statusText: response.statusText,
+          requestId: response.headers.get('x-neon-ret-request-id') || response.headers.get('x-trace-id'),
+          response: data,
+          raw: responseText,
+        });
         return res.status(response.status).json({ message: data['message'] || "Failed to send reset link." });
       }
       
