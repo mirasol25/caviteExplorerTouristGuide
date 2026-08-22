@@ -107,8 +107,16 @@ class _PlaceDetailsScreenState extends State<PlaceDetailsScreen>
               headers: {'Authorization': 'Bearer $token'})
           : http.post(ApiService.uri('/places/$id/favorite'),
               headers: {'Authorization': 'Bearer $token'}));
-      if (response.statusCode < 200 || response.statusCode >= 300)
-        throw Exception('Could not update saved landmark.');
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        var message = 'Could not update saved landmark.';
+        try {
+          final body = json.decode(response.body);
+          if (body is Map && body['message'] != null) {
+            message = body['message'].toString();
+          }
+        } catch (_) {}
+        throw Exception(message);
+      }
       if (mounted) {
         setState(() => _favorite = !_favorite);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -432,34 +440,6 @@ class _PlaceDetailsScreenState extends State<PlaceDetailsScreen>
               ],
             ),
           ),
-          Positioned(
-            top: MediaQuery.of(context).padding.top + 10,
-            right: 20,
-            child: Semantics(
-              button: true,
-              label: _favorite
-                  ? 'Remove $name from saved landmarks'
-                  : 'Save $name',
-              child: IconButton(
-                tooltip: _favorite ? 'Remove from saved' : 'Save landmark',
-                onPressed: _favoriteBusy ? null : _toggleFavorite,
-                style: IconButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: const Color(0xFF176A50),
-                    elevation: 4,
-                    shadowColor: Colors.black26),
-                icon: _favoriteBusy
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2))
-                    : Icon(_favorite
-                        ? Icons.bookmark_rounded
-                        : Icons.bookmark_border_rounded),
-              ),
-            ),
-          ),
-
           // 2. SCROLLABLE CONTENT
           SingleChildScrollView(
             child: Column(
@@ -658,6 +638,35 @@ class _PlaceDetailsScreenState extends State<PlaceDetailsScreen>
                   elevation: 4,
                   shadowColor: Colors.black26),
               icon: const Icon(Icons.arrow_back, size: 20),
+            ),
+          ),
+          // Keep actions above the scroll view so their taps are not captured
+          // by the transparent header area of the scrolling content.
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 10,
+            right: 20,
+            child: Semantics(
+              button: true,
+              label: _favorite
+                  ? 'Remove $name from saved landmarks'
+                  : 'Save $name',
+              child: IconButton(
+                tooltip: _favorite ? 'Remove from saved' : 'Save landmark',
+                onPressed: _favoriteBusy ? null : _toggleFavorite,
+                style: IconButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: const Color(0xFF176A50),
+                    elevation: 4,
+                    shadowColor: Colors.black26),
+                icon: _favoriteBusy
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : Icon(_favorite
+                        ? Icons.bookmark_rounded
+                        : Icons.bookmark_border_rounded),
+              ),
             ),
           ),
         ],

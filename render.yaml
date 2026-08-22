@@ -61,10 +61,12 @@ services:
       - key: BREVO_SENDER_NAME
         value: Cavite Explorer & Tourism
       - key: TRANSPORT_MAX_BOARDING_WALK_METERS
-        value: 3000
+        value: 700
       - key: TRANSPORT_MAX_DESTINATION_WALK_METERS
-        value: 1800
+        value: 700
       - key: TRANSPORT_MAX_TRANSFER_WALK_METERS
-        value: 500
+        value: 250
+      - key: TRANSPORT_MAX_TOTAL_WALK_METERS
+        value: 1200
       - key: TRANSPORT_MAX_JOURNEY_LEGS
         value: 4

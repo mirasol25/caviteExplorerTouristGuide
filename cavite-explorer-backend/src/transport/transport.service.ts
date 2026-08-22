@@ -68,9 +68,10 @@ export class TransportService {
     return { index, distance };
   }
 
-  private limit(name: string, fallback: number) {
+  private limit(name: string, fallback: number, maximum = Number.POSITIVE_INFINITY) {
     const value = Number(process.env[name]);
-    return Number.isFinite(value) && value > 0 ? value : fallback;
+    const configured = Number.isFinite(value) && value > 0 ? value : fallback;
+    return Math.min(configured, maximum);
   }
 
   private async motorScooterGeometry(from: Point, to: Point): Promise<Point[] | null> {
@@ -304,8 +305,11 @@ export class TransportService {
       : Math.round((baseFare + billableExtraKilometers * Number(additionalFarePerKm || 0)) * 100) / 100;
     const boardingPoint = option.geometry[boardingIndex];
     const dropOffPoint = option.geometry[dropOffIndex];
-    const boardingAccess = this.nearestMetadata(option.accessPoints, boardingPoint, 750);
-    const dropOffAccess = this.nearestMetadata(option.accessPoints, dropOffPoint, 750);
+    // Named access points are labels for the exact stop area, not mandatory
+    // terminals. A broad match used to call an ordinary roadside boarding
+    // point a terminal even when the passenger was hundreds of metres away.
+    const boardingAccess = this.nearestMetadata(option.accessPoints, boardingPoint, 120);
+    const dropOffAccess = this.nearestMetadata(option.accessPoints, dropOffPoint, 120);
     const boardingAtTerminal = this.distance(boardingPoint, option.geometry[0]) <= 300;
     const dropOffAtTerminal = this.distance(dropOffPoint, option.geometry[option.geometry.length - 1]) <= 300;
     const sectionRoadNames = this.roadNamesForLeg(option, boardingPoint, dropOffPoint);
@@ -376,9 +380,14 @@ export class TransportService {
     ]);
     const candidates: any[] = [];
     const directionalRoutes: DirectionalRoute[] = [];
-    const maxBoardingWalk = this.limit('TRANSPORT_MAX_BOARDING_WALK_METERS', 3000);
-    const maxDestinationWalk = this.limit('TRANSPORT_MAX_DESTINATION_WALK_METERS', 1800);
-    const maxTransferWalk = this.limit('TRANSPORT_MAX_TRANSFER_WALK_METERS', 500);
+    // Fixed-route vehicles may be boarded at the nearest safe point anywhere
+    // along their verified geometry. These are walking limits to that route,
+    // not distances to its terminal. Hard ceilings also protect passengers if
+    // an old deployment still has overly permissive environment values.
+    const maxBoardingWalk = this.limit('TRANSPORT_MAX_BOARDING_WALK_METERS', 700, 700);
+    const maxDestinationWalk = this.limit('TRANSPORT_MAX_DESTINATION_WALK_METERS', 700, 700);
+    const maxTransferWalk = this.limit('TRANSPORT_MAX_TRANSFER_WALK_METERS', 250, 250);
+    const maxTotalWalk = this.limit('TRANSPORT_MAX_TOTAL_WALK_METERS', 1200, 1500);
     // Convert every saved route into one or two directed paths. Route names,
     // terminals, and signboards all come from the database.
     for (const route of routes) {
@@ -721,8 +730,11 @@ export class TransportService {
         return items;
       }, new Map<string, any>())
       .values()];
-    const efficientCandidates = uniqueCandidates.filter((candidate) =>
-      !uniqueCandidates.some((other) => {
+    const walkableCandidates = uniqueCandidates.filter(
+      (candidate) => walkingDistance(candidate) <= maxTotalWalk,
+    );
+    const efficientCandidates = walkableCandidates.filter((candidate) =>
+      !walkableCandidates.some((other) => {
         if (other === candidate) return false;
         const noWorse =
           walkingDistance(other) <= walkingDistance(candidate) &&
