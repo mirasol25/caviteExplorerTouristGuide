@@ -182,5 +182,14 @@ class NotificationService {
 
   static Future<void> cancelVisit(String landmarkId) =>
       plugin.cancel(_visitId(landmarkId));
+  static Future<void> cancelBadgeActivity(Iterable<String> landmarkIds) async {
+    await initialize();
+    for (final landmarkId in landmarkIds.toSet()) {
+      await plugin.cancel(_visitId(landmarkId));
+      await plugin.cancel(10000 + (landmarkId.hashCode.abs() % 1000));
+      await plugin.cancel(rewardId + (landmarkId.hashCode.abs() % 1000));
+    }
+  }
+
   static Future<void> cancelCommute() => plugin.cancel(foregroundId);
 }

@@ -1967,3 +1967,15 @@
     padding: 13px;
   }
 }
+.analytics-stats .metric { text-align: left; }
+.analytics-grid { margin-top: 20px; align-items: start; }
+.analytics-grid .card { min-height: 240px; }
+.analytics-list { display: grid; gap: 10px; margin-top: 18px; }
+.analytics-list > div { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid #e5ebe6; }
+.analytics-list > div:last-child { border-bottom: 0; }
+.analytics-list > div > div { display: grid; gap: 3px; }
+.analytics-list strong { color: #153f34; }
+.analytics-list span { color: #6c786f; font-size: 12px; }
+.analytics-list.ranked > div { justify-content: flex-start; }
+.analytics-list.ranked > div > b { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: #edf5e9; color: #176a50; }
+.pill.attention { background: #fff0e3; color: #a54b16; }

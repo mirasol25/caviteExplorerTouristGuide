@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../services/background_tracking_service.dart';
 import '../services/api_service.dart';
+import '../services/auth_service.dart';
 import '../services/location_service.dart';
 import '../screens/place_details_screen.dart';
 import '../screens/badge_collection_screen.dart';
@@ -22,32 +23,37 @@ class VisitTrackingOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<List<Map<String, dynamic>>>(
-      valueListenable: VisitTrackingController.instance.visits,
-      builder: (context, visits, _) {
-        final visit = visits.isEmpty ? null : visits.first;
-        final status = visit?['status']?.toString();
-        final visible = visit != null &&
-            status != 'COMPLETED' &&
-            visit['earned'] != true &&
-            visit['landmarkId'] != null;
-        return Stack(
-          children: [
-            child,
-            if (visible)
-              Positioned(
-                left: 18,
-                right: 18,
-                top: MediaQuery.paddingOf(context).top + 8,
-                child: _VisitPill(
-                  visit: visit,
-                  visitCount: visits.length,
-                  navigatorKey: navigatorKey,
+    return ValueListenableBuilder<bool>(
+      valueListenable: AuthService.badgeEligible,
+      builder: (context, eligible, _) =>
+          ValueListenableBuilder<List<Map<String, dynamic>>>(
+        valueListenable: VisitTrackingController.instance.visits,
+        builder: (context, visits, _) {
+          final visit = visits.isEmpty ? null : visits.first;
+          final status = visit?['status']?.toString();
+          final visible = eligible &&
+              visit != null &&
+              status != 'COMPLETED' &&
+              visit['earned'] != true &&
+              visit['landmarkId'] != null;
+          return Stack(
+            children: [
+              child,
+              if (visible)
+                Positioned(
+                  left: 18,
+                  right: 18,
+                  top: MediaQuery.paddingOf(context).top + 8,
+                  child: _VisitPill(
+                    visit: visit,
+                    visitCount: visits.length,
+                    navigatorKey: navigatorKey,
+                  ),
                 ),
-              ),
-          ],
-        );
-      },
+            ],
+          );
+        },
+      ),
     );
   }
 }
@@ -122,10 +128,10 @@ class _VisitPill extends StatelessWidget {
                       visitCount > 1
                           ? '$visitCount landmark badges in progress'
                           : paused
-                          ? 'Visit paused - return soon'
-                          : reset
-                              ? 'Visit timer reset'
-                              : 'Earning $name badge',
+                              ? 'Visit paused - return soon'
+                              : reset
+                                  ? 'Visit timer reset'
+                                  : 'Earning $name badge',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.poppins(
@@ -138,8 +144,8 @@ class _VisitPill extends StatelessWidget {
                       visitCount > 1
                           ? 'Tap to view every active countdown'
                           : paused
-                          ? 'Tap to see your 5-minute return window'
-                          : '${_clock(remaining)} remaining',
+                              ? 'Tap to see your 5-minute return window'
+                              : '${_clock(remaining)} remaining',
                       style: GoogleFonts.poppins(
                         color: Colors.white.withValues(alpha: .82),
                         fontSize: 9.5,
@@ -205,14 +211,12 @@ Widget _multipleVisitDetailsSheet(List<Map<String, dynamic>> visits) {
                 final seconds = paused
                     ? (visit['graceRemainingSeconds'] as num?)?.round() ?? 300
                     : (visit['remainingSeconds'] as num?)?.round() ?? 0;
-                final color = paused
-                    ? const Color(0xFFE56B2F)
-                    : const Color(0xFF176A50);
+                final color =
+                    paused ? const Color(0xFFE56B2F) : const Color(0xFF176A50);
                 return Material(
                   color: Colors.transparent,
                   child: InkWell(
-                    onTap: () =>
-                        unawaited(_openLandmark(itemContext, visit)),
+                    onTap: () => unawaited(_openLandmark(itemContext, visit)),
                     borderRadius: BorderRadius.circular(16),
                     child: Ink(
                       padding: const EdgeInsets.all(14),
@@ -222,43 +226,47 @@ Widget _multipleVisitDetailsSheet(List<Map<String, dynamic>> visits) {
                         border: Border.all(color: color.withValues(alpha: .2)),
                       ),
                       child: Row(
-                    children: [
-                      Icon(paused
-                          ? Icons.location_off_rounded
-                          : Icons.workspace_premium_rounded,
-                          color: color),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              visit['landmarkName']?.toString() ?? 'Landmark',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.poppins(
-                                  fontSize: 13, fontWeight: FontWeight.w700),
-                            ),
-                            Text(
+                        children: [
+                          Icon(
                               paused
-                                  ? 'Visit paused • return window'
-                                  : 'Inside landmark • badge countdown',
-                              style: GoogleFonts.poppins(
-                                  fontSize: 10, color: Colors.grey.shade600),
+                                  ? Icons.location_off_rounded
+                                  : Icons.workspace_premium_rounded,
+                              color: color),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  visit['landmarkName']?.toString() ??
+                                      'Landmark',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: GoogleFonts.poppins(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700),
+                                ),
+                                Text(
+                                  paused
+                                      ? 'Visit paused • return window'
+                                      : 'Inside landmark • badge countdown',
+                                  style: GoogleFonts.poppins(
+                                      fontSize: 10,
+                                      color: Colors.grey.shade600),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
+                          ),
+                          Text(_clock(seconds),
+                              style: GoogleFonts.poppins(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w800,
+                                  color: color)),
+                          const SizedBox(width: 4),
+                          Icon(Icons.chevron_right_rounded,
+                              size: 18, color: color),
+                        ],
                       ),
-                      Text(_clock(seconds),
-                          style: GoogleFonts.poppins(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w800,
-                              color: color)),
-                      const SizedBox(width: 4),
-                      Icon(Icons.chevron_right_rounded,
-                          size: 18, color: color),
-                    ],
-                  ),
                     ),
                   ),
                 );

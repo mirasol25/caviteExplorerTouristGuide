@@ -66,9 +66,10 @@ class _LoginScreenState extends State<LoginScreen> {
               final data = jsonDecode(response.body);
               final name = data['user']['name'] ?? 'Explorer';
               final email = data['user']['email'] ?? '';
+              final role = data['user']['role'] ?? 'user';
 
               // Save session and navigate to Home
-              await AuthService.saveUser(name, email, token);
+              await AuthService.saveUser(name, email, token, role: role);
               if (mounted) {
                 Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
               }
@@ -141,8 +142,9 @@ class _LoginScreenState extends State<LoginScreen> {
         final token = data['token'];
         final name = data['user']['name'] ?? 'Explorer';
         final email = data['user']['email'] ?? '';
+        final role = data['user']['role'] ?? 'user';
 
-        await AuthService.saveUser(name, email, token);
+        await AuthService.saveUser(name, email, token, role: role);
 
         if (mounted) {
           Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);

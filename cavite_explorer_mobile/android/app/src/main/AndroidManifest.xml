@@ -8,6 +8,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.CAMERA" />
 
     <application
         android:label="cavite_explorer_mobile"
@@ -47,9 +48,15 @@
                 <data android:scheme="caviteexplorer" android:host="login-callback" />
                 
                 <data android:scheme="caviteexplorer" android:host="reset-password" />
+                <data android:scheme="caviteexplorer" android:host="accept-invite" />
             </intent-filter>
 
         </activity> 
+
+        <activity
+            android:name="com.yalantis.ucrop.UCropActivity"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar" />
         
         <meta-data
             android:name="flutterEmbedding"

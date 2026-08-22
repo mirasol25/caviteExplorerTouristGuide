@@ -10,6 +10,7 @@ import 'login_screen.dart';
 import 'profile_screen.dart';
 import 'badge_collection_screen.dart';
 import 'visited_places_screen.dart';
+import 'partners_screen.dart';
 import '../services/auth_service.dart';
 import '../screens/place_details_screen.dart';
 import '../screens/map_screen.dart'; // Make sure the path matches your folder structure
@@ -108,7 +109,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // Dynamically extract unique municipalities from your database!
     final municipalities = [
       "All",
-      ..._allLandmarks.map((e) => e['municipality'].toString()).toSet().toList()
+      ..._allLandmarks.map((e) => e['municipality'].toString()).toSet()
     ];
 
     // Sort them alphabetically, keeping "All" at the top
@@ -189,13 +190,28 @@ class _HomeScreenState extends State<HomeScreen> {
     // Prepare standard sections if not searching
     final popularItems = List<dynamic>.from(_allLandmarks)
       ..sort((a, b) {
-        final ratingA = (a['averageRating'] as num?)?.toDouble() ?? 0;
-        final ratingB = (b['averageRating'] as num?)?.toDouble() ?? 0;
-        final reviewsA = (a['reviewCount'] as num?)?.toDouble() ?? 0;
-        final reviewsB = (b['reviewCount'] as num?)?.toDouble() ?? 0;
-        final scoreA = ratingA * (1 + log(1 + reviewsA));
-        final scoreB = ratingB * (1 + log(1 + reviewsB));
-        return scoreB.compareTo(scoreA);
+        final claims = ((b['badgeClaimCount'] as num?)?.toInt() ?? 0)
+            .compareTo((a['badgeClaimCount'] as num?)?.toInt() ?? 0);
+        if (claims != 0) return claims;
+        return ((b['reviewCount'] as num?)?.toInt() ?? 0)
+            .compareTo((a['reviewCount'] as num?)?.toInt() ?? 0);
+      });
+    final topRatedItems = List<dynamic>.from(_allLandmarks)
+      ..removeWhere(
+          (item) => ((item['reviewCount'] as num?)?.toInt() ?? 0) == 0)
+      ..sort((a, b) {
+        double score(dynamic item) {
+          final rating = (item['averageRating'] as num?)?.toDouble() ?? 0;
+          final reviews = (item['reviewCount'] as num?)?.toDouble() ?? 0;
+          // Bayesian weighting keeps a single 5-star review from outranking a
+          // consistently highly rated landmark with many verified reviews.
+          return (reviews / (reviews + 5)) * rating + (5 / (reviews + 5)) * 3.5;
+        }
+
+        final scoreOrder = score(b).compareTo(score(a));
+        if (scoreOrder != 0) return scoreOrder;
+        return ((b['reviewCount'] as num?)?.toInt() ?? 0)
+            .compareTo((a['reviewCount'] as num?)?.toInt() ?? 0);
       });
     List<dynamic> recommendedItems = List.from(_allLandmarks);
 
@@ -231,16 +247,15 @@ class _HomeScreenState extends State<HomeScreen> {
             : Stack(
                 children: [
                   SingleChildScrollView(
-                    padding:
-                        const EdgeInsets.only(left: 20, right: 20, bottom: 100),
+                    padding: const EdgeInsets.fromLTRB(18, 0, 18, 150),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 14),
                         _buildHeader(context),
-                        const SizedBox(height: 25),
+                        const SizedBox(height: 20),
                         _buildSearchBar(),
-                        const SizedBox(height: 30),
+                        const SizedBox(height: 28),
 
                         // --- DYNAMIC UI SWITCH ---
                         if (isSearchingOrFiltering) ...[
@@ -269,7 +284,12 @@ class _HomeScreenState extends State<HomeScreen> {
                               ? _allLandmarks
                               : popularItems),
 
-                          const SizedBox(height: 35),
+                          const SizedBox(height: 30),
+                          _sectionHeader("Top Rated Places", "View map"),
+                          const SizedBox(height: 13),
+                          _buildRankedList(topRatedItems.take(10).toList()),
+
+                          const SizedBox(height: 32),
                           _sectionHeader(
                               _currentPosition != null
                                   ? "Nearest to You"
@@ -294,91 +314,107 @@ class _HomeScreenState extends State<HomeScreen> {
   // --- UI COMPONENTS ---
 
   Widget _buildHeader(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        ClipOval(
-          child: Container(
-            width: 52,
-            height: 52,
-            color: Colors.white,
-            padding: const EdgeInsets.all(3),
-            child: Image.asset(
-              'assets/images/cavite-explorer-logo.png',
-              fit: BoxFit.contain,
-            ),
-          ),
+    final displayName = (_userName?.trim().isNotEmpty ?? false)
+        ? _userName!.trim().split(RegExp(r'\s+')).first
+        : 'Explorer';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+      child: Row(children: [
+        Container(
+          width: 50,
+          height: 50,
+          padding: const EdgeInsets.all(3),
+          decoration: BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+              border: Border.all(color: const Color(0xFFE4E8E3)),
+              boxShadow: const [
+                BoxShadow(
+                    color: Color(0x12000000),
+                    blurRadius: 10,
+                    offset: Offset(0, 4))
+              ]),
+          child: ClipOval(
+              child: Image.asset('assets/images/cavite-explorer-logo.png',
+                  fit: BoxFit.contain)),
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: 12),
         Expanded(
-            child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text("Explore",
-                style: GoogleFonts.poppins(
-                    color: Colors.grey[500],
-                    fontSize: 16,
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: 1.5,
-                    height: 1.0)),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
-                children: [
-                  Text("Cavite",
-                      style: GoogleFonts.poppins(
-                          color: const Color(0xFF1A1A1A),
-                          fontSize: 34,
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -1.0)),
-                  const SizedBox(width: 4),
-                  const Icon(Icons.location_on,
-                      color: Colors.blueAccent, size: 28),
-                ],
-              ),
-            ),
-          ],
-        )),
-        const SizedBox(width: 8),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(
+              _userName == null
+                  ? 'DISCOVER LOCAL STORIES'
+                  : 'WELCOME BACK, ${displayName.toUpperCase()}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.poppins(
+                  color: Colors.grey.shade500,
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: .8)),
+          const SizedBox(height: 1),
+          Row(children: [
+            Flexible(
+                child: Text('Explore Cavite',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.poppins(
+                        color: const Color(0xFF1A1A1A),
+                        fontSize: 27,
+                        height: 1.15,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -.8))),
+            const SizedBox(width: 4),
+            const Icon(Icons.location_on_rounded,
+                color: Color(0xFF4285F4), size: 23),
+          ]),
+        ])),
+        const SizedBox(width: 10),
         if (_isLoadingUser)
           const SizedBox(
-              width: 24,
-              height: 24,
-              child: CircularProgressIndicator(
-                  strokeWidth: 2, color: Colors.black54))
+              width: 42,
+              height: 42,
+              child: Padding(
+                  padding: EdgeInsets.all(10),
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.black54)))
         else if (_userName != null)
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 82),
-            child: Text(_userName!,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.poppins(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 16,
-                    color: const Color(0xFF1A1A1A))),
+          Tooltip(
+            message: 'Open profile',
+            child: InkWell(
+              onTap: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const ProfileScreen())),
+              borderRadius: BorderRadius.circular(16),
+              child: Container(
+                  width: 43,
+                  height: 43,
+                  decoration: BoxDecoration(
+                      color: const Color(0xFFE8F1FF),
+                      borderRadius: BorderRadius.circular(15)),
+                  alignment: Alignment.center,
+                  child: Text(displayName.characters.first.toUpperCase(),
+                      style: GoogleFonts.poppins(
+                          color: const Color(0xFF3478E5),
+                          fontWeight: FontWeight.w800,
+                          fontSize: 17))),
+            ),
           )
         else
-          TextButton(
+          FilledButton(
             onPressed: () => Navigator.push(context,
-                MaterialPageRoute(builder: (context) => const LoginScreen())),
-            style: TextButton.styleFrom(
-              backgroundColor: const Color(0xFF1A1A1A),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(24)),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              elevation: 4,
-              shadowColor: Colors.black.withValues(alpha: 0.2),
-            ),
-            child: Text("Sign In",
+                MaterialPageRoute(builder: (_) => const LoginScreen())),
+            style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF1A1A1A),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14))),
+            child: Text('Sign in',
                 style: GoogleFonts.poppins(
-                    fontWeight: FontWeight.w600, fontSize: 14)),
+                    fontSize: 11, fontWeight: FontWeight.w700)),
           ),
-      ],
+      ]),
     );
   }
 
@@ -387,7 +423,8 @@ class _HomeScreenState extends State<HomeScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(19),
+        border: Border.all(color: const Color(0xFFE9ECE8)),
         boxShadow: [
           BoxShadow(
               color: Colors.black.withValues(alpha: 0.03),
@@ -447,7 +484,8 @@ class _HomeScreenState extends State<HomeScreen> {
         if (actionText.isNotEmpty)
           InkWell(
             onTap: () {
-              print("$actionText clicked");
+              Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const MapScreen()));
             },
             borderRadius: BorderRadius.circular(8),
             child: Padding(
@@ -464,11 +502,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildPopularList(List<dynamic> items) {
-    if (items.isEmpty)
+    if (items.isEmpty) {
       return Text("No popular landmarks.", style: GoogleFonts.poppins());
+    }
 
+    final availableWidth = MediaQuery.sizeOf(context).width - 36;
+    final cardWidth = ((availableWidth - 14) / 2).clamp(165.0, 210.0);
     return SizedBox(
-      height: 260,
+      height: 250,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         clipBehavior: Clip.none,
@@ -489,10 +530,10 @@ class _HomeScreenState extends State<HomeScreen> {
               );
             },
             child: Container(
-              width: 180,
-              margin: const EdgeInsets.only(right: 20, bottom: 10),
+              width: cardWidth,
+              margin: const EdgeInsets.only(right: 14, bottom: 10),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(24),
+                borderRadius: BorderRadius.circular(22),
                 color: Colors.grey[300],
                 boxShadow: [
                   BoxShadow(
@@ -502,7 +543,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(24),
+                borderRadius: BorderRadius.circular(22),
                 child: Stack(
                   children: [
                     Positioned.fill(child: AutoSlidingImages(images: images)),
@@ -528,7 +569,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               item['name'] ?? "Unknown",
                               style: GoogleFonts.poppins(
                                   color: Colors.white,
-                                  fontSize: 16,
+                                  fontSize: 14,
                                   fontWeight: FontWeight.bold),
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
@@ -557,6 +598,45 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ],
                         ),
+                      ),
+                    ),
+                    Positioned(
+                      left: 11,
+                      top: 11,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 9, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: index < 3
+                              ? const Color(0xFFF2BE43)
+                              : Colors.black.withValues(alpha: .62),
+                          borderRadius: BorderRadius.circular(99),
+                          boxShadow: const [
+                            BoxShadow(color: Color(0x24000000), blurRadius: 7)
+                          ],
+                        ),
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          Icon(
+                            index < 3
+                                ? Icons.emoji_events_rounded
+                                : Icons.workspace_premium_rounded,
+                            color: index < 3
+                                ? const Color(0xFF553D08)
+                                : Colors.white,
+                            size: 13,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            '#${index + 1} • ${(item['badgeClaimCount'] as num?)?.toInt() ?? 0} badges',
+                            style: GoogleFonts.poppins(
+                              color: index < 3
+                                  ? const Color(0xFF553D08)
+                                  : Colors.white,
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ]),
                       ),
                     ),
                   ],
@@ -595,7 +675,7 @@ class _HomeScreenState extends State<HomeScreen> {
         crossAxisCount: 2,
         crossAxisSpacing: 16,
         mainAxisSpacing: 16,
-        childAspectRatio: 0.85,
+        childAspectRatio: 0.78,
       ),
       itemBuilder: (context, index) {
         final item = items[index];
@@ -700,8 +780,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildFloatingBottomNav() {
     return Container(
-      margin: const EdgeInsets.only(bottom: 20, left: 22, right: 22),
-      padding: const EdgeInsets.symmetric(vertical: 12),
+      margin: const EdgeInsets.only(bottom: 12, left: 18, right: 18),
+      padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 5),
       decoration: BoxDecoration(
         color: const Color(0xFF1A1A1A),
         borderRadius: BorderRadius.circular(40),
@@ -730,7 +810,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 builder: (context) => const VisitedPlacesScreen(),
               ),
             ),
-            child: _navIcon(Icons.hiking_rounded, false, 'Visited places'),
+            child: _navIcon(Icons.auto_stories_rounded, false, 'My journey'),
           ),
           GestureDetector(
             onTap: () => Navigator.push(
@@ -743,9 +823,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 Icons.workspace_premium_outlined, false, 'Badge collection'),
           ),
           GestureDetector(
-            onTap: () => Navigator.push(context,
-                MaterialPageRoute(builder: (context) => const ProfileScreen())),
-            child: _navIcon(Icons.person_outline_rounded, false, 'Profile'),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const PartnersScreen(),
+              ),
+            ),
+            child: _navIcon(Icons.local_offer_rounded, false, 'Rewards'),
           ),
         ],
       ),
@@ -760,16 +844,147 @@ class _HomeScreenState extends State<HomeScreen> {
         button: true,
         selected: isActive,
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: EdgeInsets.all(isActive ? 11 : 8),
+          duration: const Duration(milliseconds: 220),
+          padding:
+              EdgeInsets.symmetric(horizontal: isActive ? 12 : 8, vertical: 8),
           decoration: BoxDecoration(
               color: isActive
                   ? Colors.white.withValues(alpha: 0.1)
                   : Colors.transparent,
-              shape: BoxShape.circle),
-          child: Icon(icon,
-              color: isActive ? Colors.white : Colors.white54, size: 24),
+              borderRadius: BorderRadius.circular(24)),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon,
+                color: isActive ? Colors.white : Colors.white60, size: 21),
+            if (isActive) ...[
+              const SizedBox(width: 6),
+              Text(label,
+                  style: GoogleFonts.poppins(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700)),
+            ],
+          ]),
         ),
+      ),
+    );
+  }
+
+  Widget _buildRankedList(List<dynamic> items) {
+    if (items.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+            color: Colors.white, borderRadius: BorderRadius.circular(18)),
+        child: Text(
+            'Ratings will appear after verified visitors share their experience.',
+            textAlign: TextAlign.center,
+            style:
+                GoogleFonts.poppins(color: Colors.grey.shade600, fontSize: 11)),
+      );
+    }
+    return SizedBox(
+      height: 118,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        clipBehavior: Clip.none,
+        itemCount: items.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 12),
+        itemBuilder: (context, index) {
+          final item = items[index];
+          final images =
+              item['images'] is List ? item['images'] as List : const [];
+          final rating = (item['averageRating'] as num?)?.toDouble() ?? 0;
+          final reviews = (item['reviewCount'] as num?)?.toInt() ?? 0;
+          return InkWell(
+            onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => PlaceDetailsScreen(
+                        place: item, userPosition: _currentPosition))),
+            borderRadius: BorderRadius.circular(19),
+            child: Container(
+              width: 286,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(19),
+                  border: Border.all(color: const Color(0xFFE6EAE6)),
+                  boxShadow: const [
+                    BoxShadow(
+                        color: Color(0x10000000),
+                        blurRadius: 12,
+                        offset: Offset(0, 5))
+                  ]),
+              child: Row(children: [
+                Stack(clipBehavior: Clip.none, children: [
+                  ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: SizedBox(
+                          width: 88,
+                          height: 96,
+                          child: images.isNotEmpty
+                              ? _ResilientLandmarkImage(source: images.first)
+                              : Container(color: Colors.grey.shade200))),
+                  Positioned(
+                      left: -7,
+                      top: -7,
+                      child: Container(
+                          width: 31,
+                          height: 31,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                              color: index < 3
+                                  ? const Color(0xFFF4BE3F)
+                                  : const Color(0xFF176A50),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 2),
+                              boxShadow: const [
+                                BoxShadow(
+                                    color: Color(0x22000000), blurRadius: 5)
+                              ]),
+                          child: Text('${index + 1}',
+                              style: GoogleFonts.poppins(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800)))),
+                ]),
+                const SizedBox(width: 12),
+                Expanded(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                      Text(item['name']?.toString() ?? 'Landmark',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.poppins(
+                              fontSize: 12.5,
+                              height: 1.25,
+                              fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 7),
+                      Row(children: [
+                        const Icon(Icons.star_rounded,
+                            color: Color(0xFFF0A928), size: 17),
+                        const SizedBox(width: 3),
+                        Text(rating.toStringAsFixed(1),
+                            style: GoogleFonts.poppins(
+                                fontSize: 11, fontWeight: FontWeight.w700)),
+                        Text('  ($reviews ratings)',
+                            style: GoogleFonts.poppins(
+                                fontSize: 9.5, color: Colors.grey.shade600))
+                      ]),
+                      const SizedBox(height: 4),
+                      Text('#${index + 1} visitor ranking',
+                          style: GoogleFonts.poppins(
+                              fontSize: 9.5,
+                              color: const Color(0xFF176A50),
+                              fontWeight: FontWeight.w600)),
+                    ])),
+              ]),
+            ),
+          );
+        },
       ),
     );
   }

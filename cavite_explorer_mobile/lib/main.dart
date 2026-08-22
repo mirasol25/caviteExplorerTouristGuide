@@ -3,11 +3,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:app_links/app_links.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/map_preview_screen.dart';
 import 'screens/profile_screen.dart';
+import 'screens/partner_dashboard_screen.dart';
+import 'screens/partner_invite_screen.dart';
 import 'services/api_service.dart';
+import 'services/auth_service.dart';
 import 'services/background_tracking_service.dart';
 import 'services/location_service.dart';
 import 'services/notification_service.dart';
@@ -21,6 +25,7 @@ Future<void> main() async {
     FlutterError.presentError(details);
     debugPrint('Flutter framework error: ${details.exceptionAsString()}');
   };
+  await AuthService.initializeSession();
   await VisitTrackingController.instance.initialize();
   debugPrint('Cavite Explorer: Flutter application starting');
   runApp(const CaviteExplorerApp());
@@ -36,6 +41,7 @@ class CaviteExplorerApp extends StatefulWidget {
 class _CaviteExplorerAppState extends State<CaviteExplorerApp>
     with WidgetsBindingObserver {
   StreamSubscription<String>? _notificationSubscription;
+  StreamSubscription<Uri>? _appLinkSubscription;
 
   @override
   void initState() {
@@ -44,6 +50,8 @@ class _CaviteExplorerAppState extends State<CaviteExplorerApp>
     _notificationSubscription =
         notificationPayloads.stream.listen(_openNotificationPayload);
     VisitTrackingController.instance.unlockedBadge.addListener(_showUnlock);
+    AuthService.badgeEligible.addListener(_syncBadgeSession);
+    _listenForPartnerInvites();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final initial = await NotificationService.initialPayload();
       if (initial != null) await _openNotificationPayload(initial);
@@ -55,8 +63,27 @@ class _CaviteExplorerAppState extends State<CaviteExplorerApp>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _notificationSubscription?.cancel();
+    _appLinkSubscription?.cancel();
     VisitTrackingController.instance.unlockedBadge.removeListener(_showUnlock);
+    AuthService.badgeEligible.removeListener(_syncBadgeSession);
     super.dispose();
+  }
+
+  Future<void> _listenForPartnerInvites() async {
+    final links = AppLinks();
+    Future<void> open(Uri? uri) async {
+      if (uri == null ||
+          uri.scheme != 'caviteexplorer' ||
+          uri.host != 'accept-invite') return;
+      final token = uri.queryParameters['token'];
+      if (token == null || token.isEmpty) return;
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      appNavigatorKey.currentState?.push(
+          MaterialPageRoute(builder: (_) => PartnerInviteScreen(token: token)));
+    }
+
+    await open(await links.getInitialLink());
+    _appLinkSubscription = links.uriLinkStream.listen(open);
   }
 
   @override
@@ -69,6 +96,7 @@ class _CaviteExplorerAppState extends State<CaviteExplorerApp>
   }
 
   void _showUnlock() {
+    if (!AuthService.badgeEligible.value) return;
     final state = VisitTrackingController.instance.unlockedBadge.value;
     final context = appNavigatorKey.currentContext;
     if (state == null || context == null) return;
@@ -80,7 +108,17 @@ class _CaviteExplorerAppState extends State<CaviteExplorerApp>
     });
   }
 
+  void _syncBadgeSession() {
+    if (AuthService.badgeEligible.value) {
+      unawaited(BackgroundTrackingService.refreshLandmarkAwareness());
+    } else {
+      unawaited(BackgroundTrackingService.suspendBadgeTracking());
+    }
+  }
+
   Future<void> _offerBackgroundAwareness() async {
+    final signedInUser = await AuthService.getUser();
+    if (signedInUser == null || signedInUser['role'] == 'partner') return;
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getBool('background_awareness_prompted') == true ||
         await BackgroundTrackingService.isAwarenessEnabled) {
@@ -215,11 +253,17 @@ class _AppStartupScreenState extends State<_AppStartupScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       debugPrint('Cavite Explorer: first Flutter frame rendered');
       if (mounted) {
+        final user = await AuthService.getUser();
+        if (!mounted) return;
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
+          MaterialPageRoute(
+            builder: (_) => user?['role'] == 'partner'
+                ? const PartnerDashboardScreen()
+                : const HomeScreen(),
+          ),
         );
       }
     });

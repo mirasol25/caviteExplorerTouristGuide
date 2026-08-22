@@ -1,0 +1,64 @@
+services:
+  - type: web
+    name: cavite-explorer-backend
+    runtime: node
+    plan: free
+    region: singapore
+    rootDir: cavite-explorer-backend
+    buildCommand: npm ci && npx prisma generate && npm run build
+    startCommand: npm run start:prod
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 22.16.0
+      - key: DATABASE_URL
+        sync: false
+      - key: CLOUDINARY_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: NEON_AUTH_URL
+        sync: false
+      - key: NEON_JWKS_URL
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-120b
+      - key: FRONTEND_URL
+        sync: false
+      - key: ADMIN_WEB_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: BACKEND_URL
+        sync: false
+      - key: WEB_BACKEND_URL
+        sync: false
+      - key: MOBILE_BACKEND_URL
+        sync: false
+      - key: MOBILE_AUTH_CALLBACK_URL
+        sync: false
+      - key: PARTNER_INVITE_WEB_URL
+        sync: false
+      - key: MOBILE_RESET_CALLBACK_URL
+        sync: false
+      - key: MOBILE_RESET_URL
+        value: caviteexplorer://reset-password
+      - key: WEB_RESET_URL
+        sync: false
+      - key: ADMIN_INVITE_WEB_URL
+        sync: false
+      - key: PARTNER_INVITE_URL
+        value: caviteexplorer://accept-invite
+      - key: TRANSPORT_MAX_BOARDING_WALK_METERS
+        value: 3000
+      - key: TRANSPORT_MAX_DESTINATION_WALK_METERS
+        value: 1800
+      - key: TRANSPORT_MAX_TRANSFER_WALK_METERS
+        value: 500
+      - key: TRANSPORT_MAX_JOURNEY_LEGS
+        value: 4

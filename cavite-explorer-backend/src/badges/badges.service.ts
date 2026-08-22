@@ -182,6 +182,7 @@ export class BadgesService {
       this.prisma.userBadge.findMany({
         where: { userId },
         select: {
+          id: true,
           landmarkId: true,
           earnedAt: true,
           landmark: {
@@ -229,6 +230,7 @@ export class BadgesService {
       return {
         ...landmark,
         earned: Boolean(award),
+        uniqueId: award?.id ?? null,
         earnedAt: award?.earnedAt ?? null,
       };
     });

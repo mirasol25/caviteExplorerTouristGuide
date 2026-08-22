@@ -25,7 +25,10 @@ model User {
   badges      UserBadge[]
   badgeVisits BadgeVisit[]
   communityPosts LandmarkCommunityPost[]
+  landmarkMemories LandmarkMemory[]
   redemptions DiscountRedemption[]
+  savedLandmarks SavedLandmark[]
+  partnerBusiness PartnerBusiness? @relation("PartnerOwner")
   auditLogs   AuditLog[]
   sentInvites AdminInvite[]        @relation("InviteSender")
   createdAt   DateTime             @default(now())
@@ -103,9 +106,24 @@ model Landmark {
   earnedBy    UserBadge[]
   badgeVisits BadgeVisit[]
   communityPosts LandmarkCommunityPost[]
+  memories    LandmarkMemory[]
   offers      DiscountOffer[]
+  savedBy     SavedLandmark[]
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
+}
+
+model SavedLandmark {
+  id         String   @id @default(uuid())
+  userId     String
+  landmarkId String
+  createdAt  DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  landmark Landmark @relation(fields: [landmarkId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, landmarkId])
+  @@index([userId, createdAt])
 }
 
 model TripPlan {
@@ -141,6 +159,7 @@ model UserBadge {
 
   user     User     @relation(fields: [userId], references: [id])
   landmark Landmark @relation(fields: [landmarkId], references: [id])
+  redemptions DiscountRedemption[]
 
   @@unique([userId, landmarkId])
 }
@@ -178,6 +197,30 @@ model LandmarkCommunityPost {
   landmark   Landmark @relation(fields: [landmarkId], references: [id], onDelete: Cascade)
 
   @@unique([userId, landmarkId])
+  @@index([landmarkId, createdAt])
+}
+
+// A private-first travel journal. Unlike a community review, a visitor may
+// save a new memory every time they revisit the same landmark.
+model LandmarkMemory {
+  id             String   @id @default(uuid())
+  userId         String
+  landmarkId     String
+  title          String?
+  story          String
+  favoriteMoment String?
+  mood           String?
+  rating         Int?
+  photos         String[] @default([])
+  visitedAt      DateTime
+  visibility     String   @default("PRIVATE")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  landmark   Landmark @relation(fields: [landmarkId], references: [id], onDelete: Cascade)
+
+  @@index([userId, visitedAt])
   @@index([landmarkId, createdAt])
 }
 
@@ -277,11 +320,27 @@ model PartnerBusiness {
   category     String
   address      String
   municipality String
+  barangay     String?
   latitude     Float?
   longitude    Float?
   contact      String?
-  isActive     Boolean         @default(true)
+  description  String?
+  image        String?
+  operatingHours String?
+  proposedDiscountTitle String?
+  proposedDiscountDescription String?
+  proposedDiscountLabel String?
+  proposedBadgeLandmarkId String?
+  ownerUserId  String?         @unique
+  owner        User?           @relation("PartnerOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  approvalStatus String        @default("draft")
+  submittedAt   DateTime?
+  approvedAt    DateTime?
+  approvedById  String?
+  rejectionReason String?
+  isActive     Boolean         @default(false)
   offers       DiscountOffer[]
+  redemptions  DiscountRedemption[]
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
 }
@@ -307,12 +366,19 @@ model DiscountRedemption {
   id         String        @id @default(uuid())
   offerId    String
   userId     String
+  userBadgeId String
+  businessId String
   code       String        @unique
-  status     String        @default("issued")
-  redeemedAt DateTime?
+  status     String        @default("redeemed")
+  redeemedAt DateTime?     @default(now())
   offer      DiscountOffer @relation(fields: [offerId], references: [id], onDelete: Cascade)
   user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userBadge  UserBadge     @relation(fields: [userBadgeId], references: [id], onDelete: Cascade)
+  business   PartnerBusiness @relation(fields: [businessId], references: [id], onDelete: Cascade)
   createdAt  DateTime      @default(now())
+
+  @@unique([userBadgeId, businessId])
+  @@index([businessId, redeemedAt])
 }
 
 model AuditLog {

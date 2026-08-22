@@ -8,6 +8,7 @@ import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import '../services/location_service.dart';
 import 'place_details_screen.dart';
+import 'badge_redemption_screen.dart';
 
 class BadgeCollectionScreen extends StatefulWidget {
   final String? highlightedLandmarkId;
@@ -115,6 +116,8 @@ class _BadgeCollectionScreenState extends State<BadgeCollectionScreen> {
                           total: _badges.length,
                         ),
                       ),
+                      if (earned > 0)
+                        const SliverToBoxAdapter(child: _BadgeQrHint()),
                       if (widget.highlightedLandmarkId != null)
                         SliverToBoxAdapter(
                           child: Container(
@@ -124,8 +127,8 @@ class _BadgeCollectionScreenState extends State<BadgeCollectionScreen> {
                             decoration: BoxDecoration(
                               color: const Color(0xFFE5F5EB),
                               borderRadius: BorderRadius.circular(16),
-                              border: Border.all(
-                                  color: const Color(0xFF9ACDB4)),
+                              border:
+                                  Border.all(color: const Color(0xFF9ACDB4)),
                             ),
                             child: Row(
                               children: [
@@ -164,7 +167,7 @@ class _BadgeCollectionScreenState extends State<BadgeCollectionScreen> {
                               crossAxisCount: 2,
                               crossAxisSpacing: 12,
                               mainAxisSpacing: 12,
-                              childAspectRatio: .72,
+                              childAspectRatio: .68,
                             ),
                             delegate: SliverChildBuilderDelegate(
                               (_, index) => _BadgeCard(
@@ -227,9 +230,75 @@ class _CollectionHeader extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 9),
-          Text('Visit landmarks and stay for the verified time to collect more.',
+          Text(
+              'Visit landmarks and stay for the verified time to collect more.',
               style: GoogleFonts.poppins(
                   color: Colors.white.withValues(alpha: .75), fontSize: 10.5)),
+        ],
+      ),
+    );
+  }
+}
+
+class _BadgeQrHint extends StatelessWidget {
+  const _BadgeQrHint();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(18, 0, 18, 14),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFAEA),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE8CF82)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: const Color(0xFF173F34),
+              borderRadius: BorderRadius.circular(13),
+            ),
+            child: const Icon(
+              Icons.qr_code_2_rounded,
+              color: Color(0xFFDDF56E),
+              size: 27,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Your badge is your reward pass',
+                  style: GoogleFonts.poppins(
+                    color: const Color(0xFF173F34),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Tap any collected badge to show its QR code and discover partners where you can use it.',
+                  style: GoogleFonts.poppins(
+                    color: const Color(0xFF617067),
+                    fontSize: 9.5,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          const Icon(
+            Icons.touch_app_rounded,
+            color: Color(0xFFB18421),
+            size: 23,
+          ),
         ],
       ),
     );
@@ -274,85 +343,132 @@ class _BadgeCard extends StatelessWidget {
     );
 
     final card = GestureDetector(
-      onTap: unlocked ? null : () => _openLandmark(context),
-      child: Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: highlighted
-              ? const Color(0xFFE1B33C)
-              : unlocked
-                  ? const Color(0xFFD7E5DE)
-                  : Colors.grey.shade200,
-          width: highlighted ? 2 : 1,
-        ),
-        boxShadow: highlighted
-            ? const [
-                BoxShadow(color: Color(0x66E9BD4A), blurRadius: 24),
-              ]
-            : null,
-      ),
-      child: Column(
-        children: [
-          Align(
-            alignment: Alignment.topRight,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (highlighted) ...[
-                  Text('NEW',
-                      style: GoogleFonts.poppins(
-                          fontSize: 8,
-                          letterSpacing: .7,
-                          fontWeight: FontWeight.w800,
-                          color: const Color(0xFFB17C13))),
-                  const SizedBox(width: 5),
-                ],
-                Icon(
-                  unlocked ? Icons.check_circle_rounded : Icons.lock_rounded,
-                  color: unlocked
-                      ? const Color(0xFF176A50)
-                      : Colors.grey.shade500,
-                  size: 20,
+      onTap: unlocked
+          ? () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => BadgeRedemptionScreen(
+                    userBadgeId: badge['uniqueId']?.toString() ?? '',
+                  ),
                 ),
-              ],
+              )
+          : () => _openLandmark(context),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(
+            color: highlighted
+                ? const Color(0xFFE1B33C)
+                : unlocked
+                    ? const Color(0xFFD7E5DE)
+                    : Colors.grey.shade200,
+            width: highlighted ? 2 : 1,
+          ),
+          boxShadow: highlighted
+              ? const [
+                  BoxShadow(color: Color(0x66E9BD4A), blurRadius: 24),
+                ]
+              : null,
+        ),
+        child: Column(
+          children: [
+            Align(
+              alignment: Alignment.topRight,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (highlighted) ...[
+                    Text('NEW',
+                        style: GoogleFonts.poppins(
+                            fontSize: 8,
+                            letterSpacing: .7,
+                            fontWeight: FontWeight.w800,
+                            color: const Color(0xFFB17C13))),
+                    const SizedBox(width: 5),
+                  ],
+                  Icon(
+                    unlocked ? Icons.check_circle_rounded : Icons.lock_rounded,
+                    color: unlocked
+                        ? const Color(0xFF176A50)
+                        : Colors.grey.shade500,
+                    size: 20,
+                  ),
+                ],
+              ),
             ),
-          ),
-          ColorFiltered(
-            colorFilter: unlocked
-                ? const ColorFilter.mode(Colors.transparent, BlendMode.dst)
-                : const ColorFilter.matrix(<double>[
-                    .2126, .7152, .0722, 0, 0,
-                    .2126, .7152, .0722, 0, 0,
-                    .2126, .7152, .0722, 0, 0,
-                    0, 0, 0, 1, 0,
-                  ]),
-            child: Opacity(opacity: unlocked ? 1 : .55, child: artwork),
-          ),
-          const SizedBox(height: 12),
-          Text(name,
+            ColorFiltered(
+              colorFilter: unlocked
+                  ? const ColorFilter.mode(Colors.transparent, BlendMode.dst)
+                  : const ColorFilter.matrix(<double>[
+                      .2126,
+                      .7152,
+                      .0722,
+                      0,
+                      0,
+                      .2126,
+                      .7152,
+                      .0722,
+                      0,
+                      0,
+                      .2126,
+                      .7152,
+                      .0722,
+                      0,
+                      0,
+                      0,
+                      0,
+                      0,
+                      1,
+                      0,
+                    ]),
+              child: Opacity(opacity: unlocked ? 1 : .55, child: artwork),
+            ),
+            const SizedBox(height: 12),
+            Text(name,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.poppins(
+                    fontSize: 12.5,
+                    height: 1.25,
+                    fontWeight: FontWeight.w700,
+                    color: unlocked ? const Color(0xFF18372D) : Colors.grey)),
+            const Spacer(),
+            Text(
+              unlocked
+                  ? 'Collected at $place'
+                  : 'Locked • Visit for $minutes min',
               textAlign: TextAlign.center,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: GoogleFonts.poppins(
-                  fontSize: 12.5,
-                  height: 1.25,
-                  fontWeight: FontWeight.w700,
-                  color: unlocked ? const Color(0xFF18372D) : Colors.grey)),
-          const Spacer(),
-          Text(
-            unlocked ? 'Collected at $place' : 'Locked • Visit for $minutes min',
-            textAlign: TextAlign.center,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: GoogleFonts.poppins(
-                fontSize: 9,
-                color: unlocked ? const Color(0xFF4D786B) : Colors.grey),
-          ),
-        ],
-      ),
+                  fontSize: 9,
+                  color: unlocked ? const Color(0xFF4D786B) : Colors.grey),
+            ),
+            if (unlocked) ...[
+              const SizedBox(height: 7),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE7F2EA),
+                  borderRadius: BorderRadius.circular(99),
+                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.qr_code_2_rounded,
+                      color: Color(0xFF176A50), size: 14),
+                  const SizedBox(width: 4),
+                  Text('Tap for QR & rewards',
+                      style: GoogleFonts.poppins(
+                          color: const Color(0xFF176A50),
+                          fontSize: 7.8,
+                          fontWeight: FontWeight.w700)),
+                ]),
+              ),
+            ],
+          ],
+        ),
       ),
     );
     if (!highlighted) return card;
@@ -406,7 +522,7 @@ class _BadgeCard extends StatelessWidget {
       final id = badge['id']?.toString();
       final value = landmarks.whereType<Map>().firstWhere(
             (landmark) => landmark['id']?.toString() == id,
-      );
+          );
       final position = await LocationService.promptLocationOnce();
       if (!context.mounted) return;
       Navigator.of(context, rootNavigator: true).pop();

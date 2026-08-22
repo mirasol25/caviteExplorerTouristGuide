@@ -25,6 +25,34 @@ const _awarenessEnabledKey = 'landmark_awareness_enabled';
 const _nearbyCooldownPrefix = 'nearby_notified_';
 const _geofenceFingerprintKey = 'landmark_geofence_fingerprint';
 
+bool _badgeTrackingAllowed(SharedPreferences prefs) {
+  return prefs.getBool('badgeTrackingEligible') == true &&
+      prefs.getString('userName') != null &&
+      prefs.getString('userEmail') != null &&
+      prefs.getString('userRole') != 'partner';
+}
+
+Set<String> _storedLandmarkIds(SharedPreferences prefs) {
+  final ids = _activeVisitIds(prefs);
+  final raw = prefs.getString(_landmarksKey);
+  if (raw == null) return ids;
+  try {
+    for (final landmark in (json.decode(raw) as List).whereType<Map>()) {
+      final id = landmark['id']?.toString();
+      if (id != null && id.isNotEmpty) ids.add(id);
+    }
+  } catch (_) {}
+  return ids;
+}
+
+Future<void> _clearStoredBadgeActivity(SharedPreferences prefs) async {
+  await prefs.remove(_activeVisitKey);
+  await prefs.remove(_activeVisitIdsKey);
+  await prefs.remove(_visitStateKey);
+  await prefs.remove(_visitStatesKey);
+  await prefs.remove(_geofenceFingerprintKey);
+}
+
 Map<String, dynamic>? _landmarkFromPrefs(
     SharedPreferences prefs, String landmarkId) {
   final raw = prefs.getString(_landmarksKey);
@@ -78,8 +106,8 @@ Map<String, Map<String, dynamic>> _visitStates(SharedPreferences prefs) {
   return states;
 }
 
-Future<void> _saveVisitStates(SharedPreferences prefs,
-    Map<String, Map<String, dynamic>> states) async {
+Future<void> _saveVisitStates(
+    SharedPreferences prefs, Map<String, Map<String, dynamic>> states) async {
   await prefs.setString(_visitStatesKey, json.encode(states));
   if (states.isEmpty) {
     await prefs.remove(_visitStateKey);
@@ -95,6 +123,13 @@ Future<void> landmarkGeofenceTriggered(GeofenceCallbackParams params) async {
   await NotificationService.initialize();
   final prefs = await SharedPreferences.getInstance();
   await prefs.reload();
+  if (!_badgeTrackingAllowed(prefs)) {
+    final ids = _storedLandmarkIds(prefs);
+    await _clearStoredBadgeActivity(prefs);
+    await NativeGeofenceManager.instance.removeAllGeofences();
+    await NotificationService.cancelBadgeActivity(ids);
+    return;
+  }
   final claimed = prefs.getStringList(_claimedKey)?.toSet() ?? <String>{};
 
   for (final geofence in params.geofences) {
@@ -208,6 +243,20 @@ class BackgroundTrackingService {
     await NativeGeofenceManager.instance.removeAllGeofences();
   }
 
+  static Future<void> suspendBadgeTracking() async {
+    await initialize();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    final ids = _storedLandmarkIds(prefs);
+    await _clearStoredBadgeActivity(prefs);
+    await NativeGeofenceManager.instance.removeAllGeofences();
+    await NotificationService.cancelBadgeActivity(ids);
+    if (await _service.isRunning()) {
+      _service.invoke('suspendBadges');
+    }
+    VisitTrackingController.instance.clear();
+  }
+
   static Future<void> refreshLandmarkAwareness() async {
     if (_awarenessRefresh != null) return _awarenessRefresh!;
     final refresh = _refreshLandmarkAwareness();
@@ -220,6 +269,13 @@ class BackgroundTrackingService {
   }
 
   static Future<void> _refreshLandmarkAwareness() async {
+    final user = await AuthService.getUser();
+    if (user == null ||
+        user['role'] == 'partner' ||
+        (user['token']?.isEmpty ?? true)) {
+      await suspendBadgeTracking();
+      return;
+    }
     final enabled = await isAwarenessEnabled;
     final backgroundGranted = await Permission.locationAlways.isGranted;
     if (!enabled || !backgroundGranted) {
@@ -370,6 +426,13 @@ class BackgroundTrackingService {
   }
 
   static Future<void> startVisit(Map<String, dynamic> landmark) async {
+    final user = await AuthService.getUser();
+    if (user == null ||
+        user['role'] == 'partner' ||
+        (user['token']?.isEmpty ?? true)) {
+      await suspendBadgeTracking();
+      return;
+    }
     await initialize();
     final id = landmark['id']?.toString();
     if (id == null || id.isEmpty) return;
@@ -479,6 +542,12 @@ void backgroundTrackingEntryPoint(ServiceInstance service) async {
   Future<void> checkVisit(String landmarkId) async {
     if (checking.contains(landmarkId) || latestPosition == null) return;
     await prefs.reload();
+    if (!_badgeTrackingAllowed(prefs)) {
+      final ids = _storedLandmarkIds(prefs);
+      await _clearStoredBadgeActivity(prefs);
+      await NotificationService.cancelBadgeActivity(ids);
+      return;
+    }
     if (!_activeVisitIds(prefs).contains(landmarkId)) return;
     checking.add(landmarkId);
     try {
@@ -528,6 +597,11 @@ void backgroundTrackingEntryPoint(ServiceInstance service) async {
     }
   });
   service.on('verifyVisit').listen((_) => checkVisits());
+  service.on('suspendBadges').listen((_) async {
+    final ids = _storedLandmarkIds(prefs);
+    await _clearStoredBadgeActivity(prefs);
+    await NotificationService.cancelBadgeActivity(ids);
+  });
   service.on('startCommute').listen((event) async {
     commute = event == null ? null : Map<String, dynamic>.from(event);
     if (commute != null) {
@@ -591,15 +665,22 @@ class VisitTrackingController {
   Future<void> initialize() async {
     await BackgroundTrackingService.initialize();
     final prefs = await SharedPreferences.getInstance();
-    visits.value = _visitStates(prefs).values.toList();
+    if (!AuthService.badgeEligible.value || !_badgeTrackingAllowed(prefs)) {
+      await BackgroundTrackingService.suspendBadgeTracking();
+      visits.value = <Map<String, dynamic>>[];
+    } else {
+      visits.value = _visitStates(prefs).values.toList();
+    }
     _syncPrimary();
     _visitSubscription ??=
         FlutterBackgroundService().on('visitUpdate').listen((value) {
-      if (value != null) _upsert(Map<String, dynamic>.from(value));
+      if (AuthService.badgeEligible.value && value != null) {
+        _upsert(Map<String, dynamic>.from(value));
+      }
     });
     _badgeSubscription ??=
         FlutterBackgroundService().on('badgeEarned').listen((value) {
-      if (value != null) {
+      if (AuthService.badgeEligible.value && value != null) {
         final state = Map<String, dynamic>.from(value);
         final id = state['landmarkId']?.toString();
         visits.value = visits.value
@@ -633,7 +714,15 @@ class VisitTrackingController {
         _syncPrimary();
       }
     });
-    unawaited(BackgroundTrackingService.refreshLandmarkAwareness());
+    if (AuthService.badgeEligible.value) {
+      unawaited(BackgroundTrackingService.refreshLandmarkAwareness());
+    }
+  }
+
+  void clear() {
+    visits.value = <Map<String, dynamic>>[];
+    visit.value = null;
+    unlockedBadge.value = null;
   }
 
   void _upsert(Map<String, dynamic> state) {

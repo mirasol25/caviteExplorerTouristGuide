@@ -1,5 +1,5 @@
 import { BadRequestException, Controller, Get, Res, Req, Headers, Param, Query, UnauthorizedException } from '@nestjs/common';
-import { createHash } from 'crypto';
+import { createHash, randomBytes, scrypt, timingSafeEqual } from 'crypto';
 import { Response, Request } from 'express';
 import { PrismaService } from '../prisma.service';
 import { JwtService } from '@nestjs/jwt'; // <-- Import JwtService
@@ -23,6 +23,41 @@ export class AuthController {
 
   private async markInviteAccepted(inviteId?: string) {
     if (inviteId) await this.prisma.adminInvite.update({ where: { id: inviteId }, data: { acceptedAt: new Date() } });
+  }
+
+  private derivePassword(password: string, salt: string): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      scrypt(password, salt, 64, (error, key) => error ? reject(error) : resolve(key as Buffer));
+    });
+  }
+
+  private async hashLocalPassword(password: string) {
+    const salt = randomBytes(16).toString('hex');
+    const key = await this.derivePassword(password, salt);
+    return `scrypt$${salt}$${key.toString('hex')}`;
+  }
+
+  private async verifyLocalPassword(password: string, stored: string) {
+    const [algorithm, salt, expectedHex] = stored.split('$');
+    if (algorithm !== 'scrypt' || !salt || !expectedHex) return false;
+    const expected = Buffer.from(expectedHex, 'hex');
+    const actual = await this.derivePassword(password, salt);
+    return actual.length === expected.length && timingSafeEqual(actual, expected);
+  }
+
+  @Get('partner-invite')
+  openPartnerInvite(@Query('token') token: string, @Res() res: Response) {
+    if (!token) return res.status(400).send('This invitation link is missing its token.');
+    const deepLinkBase = process.env.PARTNER_INVITE_URL || 'caviteexplorer://accept-invite';
+    const deepLink = `${deepLinkBase}${deepLinkBase.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
+    const intentLink = `intent://accept-invite?token=${encodeURIComponent(token)}#Intent;scheme=caviteexplorer;package=com.example.cavite_explorer_mobile;end`;
+    const safeDeepLink = deepLink.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    const safeIntentLink = intentLink.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    return res.type('html').send(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Open Cavite Explorer</title><style>
+body{margin:0;background:#f6f6f0;color:#17241f;font-family:Arial,sans-serif;display:grid;min-height:100vh;place-items:center;padding:24px;box-sizing:border-box}.card{width:min(100%,420px);background:white;border:1px solid #dce5df;border-radius:24px;padding:30px;box-sizing:border-box;box-shadow:0 18px 45px #123d2b1f;text-align:center}.mark{width:58px;height:58px;margin:0 auto 18px;border-radius:18px;background:#176a50;color:white;display:grid;place-items:center;font-weight:800;font-size:20px}h1{font-size:25px;margin:0 0 10px}p{color:#647069;line-height:1.5}.button{display:block;margin-top:24px;background:#176a50;color:white;text-decoration:none;font-weight:700;padding:15px 18px;border-radius:12px}.hint{font-size:12px;margin-top:16px}
+</style></head><body><main class="card"><div class="mark">CE</div><h1>Partner invitation</h1><p>Open Cavite Explorer to create your password and complete your partner profile.</p><a class="button" href="${safeIntentLink}">Open Cavite Explorer</a><p class="hint">If Android does not open the app, try the direct app link below.</p><a href="${safeDeepLink}">Try direct app link</a></main></body></html>`);
   }
 
   @Get('google')
@@ -200,9 +235,23 @@ export class AuthController {
     }
   }
 
-  @Post('login')
+ @Post('login')
   async loginUser(@Body() body: { email: string; password: string }, @Res() res: Response) {
     try {
+      const email = body.email?.trim().toLowerCase();
+      const localUser = email ? await this.prisma.user.findUnique({ where: { email } }) : null;
+      if (localUser?.password.startsWith('scrypt$')) {
+        const passwordMatches = await this.verifyLocalPassword(body.password || '', localUser.password);
+        if (!passwordMatches) return res.status(401).json({ message: 'Invalid credentials.' });
+        if (!localUser.isActive) return res.status(403).json({ message: 'This account has been disabled. Contact an administrator.' });
+        const token = this.jwtService.sign({ sub: localUser.id, name: localUser.name, email: localUser.email });
+        return res.status(200).json({
+          message: 'Login successful',
+          token,
+          user: { id: localUser.id, name: localUser.name, email: localUser.email, role: localUser.role },
+        });
+      }
+
       const neonAuthUrl = process.env.NEON_AUTH_URL;
       const frontendUrl = process.env.FRONTEND_URL;
 
@@ -267,7 +316,7 @@ export class AuthController {
         return res.status(200).json({ 
           message: "Login successful", 
           token: signedJwt,
-          user: data.user 
+          user: { ...data.user, role: appUser.role }
         });
 
       } else {
@@ -301,17 +350,48 @@ export class AuthController {
     const neonAuthUrl = process.env.NEON_AUTH_URL;
     const frontendUrl = process.env.ADMIN_WEB_URL || process.env.FRONTEND_URL;
     if (!neonAuthUrl || !frontendUrl) return res.status(500).json({ message: 'Server authentication configuration is incomplete.' });
+    const invitedName = invite.name?.trim() || invite.email
+      .split('@')[0]
+      .split(/[._-]+/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ') || 'Cavite Explorer Partner';
+
+    if (invite.role === 'partner') {
+      const password = await this.hashLocalPassword(body.password);
+      const partner = await this.prisma.user.upsert({
+        where: { email: invite.email },
+        update: { name: invitedName, password, role: 'partner', isActive: true },
+        create: { email: invite.email, name: invitedName, password, role: 'partner', isActive: true },
+      });
+      await this.markInviteAccepted(invite.id);
+      const token = this.jwtService.sign({ sub: partner.id, name: partner.name, email: partner.email });
+      return res.status(200).json({
+        message: 'Partner account created and signed in.',
+        token,
+        user: { id: partner.id, name: partner.name, email: partner.email, role: partner.role },
+      });
+    }
+
+    const signUpPayload: Record<string, unknown> = {
+      email: invite.email,
+      password: body.password,
+      name: invitedName,
+    };
+    // Partner signup already continues inside the installed mobile app. Supplying
+    // a local callback here makes Neon validate a development-only URL and reject
+    // the account before it is created. Web invitations still need their callback.
+    if (invite.role !== 'partner') signUpPayload.callbackURL = frontendUrl;
     const response = await fetch(neonAuthUrl.replace('/sign-in/social', '/sign-up/email'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Origin: frontendUrl, Referer: `${frontendUrl}/` },
-      // This is a web-only invitation, so return to the trusted admin portal after verification.
-      body: JSON.stringify({ email: invite.email, password: body.password, name: invite.name || undefined, callbackURL: frontendUrl }),
+      body: JSON.stringify(signUpPayload),
     });
     const text = await response.text();
     let result: any = {}; try { result = text ? JSON.parse(text) : {}; } catch {}
     if (!response.ok) return res.status(response.status).json({ message: result.message || 'Could not create the invited account.' });
     // Neon may require email verification. The assigned role is applied on first successful sign-in.
-    return res.status(200).json({ message: 'Account created. Verify your email if requested, then sign in to the admin portal.' });
+    return res.status(200).json({ message: invite.role === 'partner' ? 'Partner account created. Verify your email if requested, then sign in in the mobile app.' : 'Account created. Verify your email if requested, then sign in to the admin portal.' });
   }
 
   @Post('forgot-password')

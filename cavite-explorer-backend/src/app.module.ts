@@ -8,10 +8,14 @@ import { AssistantModule } from './assistant/assistant.module';
 import { AdminModule } from './admin/admin.module';
 import { TransportModule } from './transport/transport.module';
 import { BadgesModule } from './badges/badges.module';
+import { RewardsModule } from './rewards/rewards.module';
+import { StorageModule } from './storage/storage.module';
+import { HealthController } from './health.controller';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }), // <-- 2. Initialize it globally
+    StorageModule,
     AuthModule, 
     PlacesModule,
     TripsModule,
@@ -19,8 +23,9 @@ import { BadgesModule } from './badges/badges.module';
     AdminModule,
     TransportModule,
     BadgesModule,
+    RewardsModule,
   ],
-  controllers: [],
+  controllers: [HealthController],
   providers: [PrismaService],
   exports: [PrismaService], // Export so PlacesService can use it
 })

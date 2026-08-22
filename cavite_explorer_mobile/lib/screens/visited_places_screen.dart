@@ -6,8 +6,7 @@ import 'package:http/http.dart' as http;
 
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
-import '../services/location_service.dart';
-import 'place_details_screen.dart';
+import 'landmark_journal_screen.dart';
 
 class VisitedPlacesScreen extends StatefulWidget {
   const VisitedPlacesScreen({super.key});
@@ -32,7 +31,9 @@ class _VisitedPlacesScreenState extends State<VisitedPlacesScreen> {
     try {
       final user = await AuthService.getUser();
       final token = user?['token']?.toString() ?? '';
-      if (token.isEmpty) throw Exception('Sign in to view your visited places.');
+      if (token.isEmpty) {
+        throw Exception('Sign in to view your visited places.');
+      }
 
       final results = await Future.wait<dynamic>([
         http.get(
@@ -46,17 +47,24 @@ class _VisitedPlacesScreenState extends State<VisitedPlacesScreen> {
         throw Exception('Could not load your visited places.');
       }
       final badgeBody = json.decode(response.body) as Map<String, dynamic>;
-      final earnedIds = ((badgeBody['collection'] as List?) ?? const [])
+      final earnedBadges = ((badgeBody['collection'] as List?) ?? const [])
           .whereType<Map>()
           .where((badge) => badge['earned'] == true)
-          .map((badge) => badge['id']?.toString())
-          .whereType<String>()
-          .toSet();
+          .toList();
+      final earnedByLandmark = <String, Map>{
+        for (final badge in earnedBadges)
+          if (badge['id'] != null) badge['id'].toString(): badge,
+      };
       _places = (results.last as List)
           .whereType<Map>()
-          .where((place) => earnedIds.contains(place['id']?.toString()))
-          .map((place) => Map<String, dynamic>.from(place))
-          .toList()
+          .where(
+              (place) => earnedByLandmark.containsKey(place['id']?.toString()))
+          .map((place) {
+        final result = Map<String, dynamic>.from(place);
+        final badge = earnedByLandmark[place['id']?.toString()];
+        result['earnedAt'] = badge?['earnedAt'];
+        return result;
+      }).toList()
         ..sort((a, b) => (a['name']?.toString() ?? '')
             .compareTo(b['name']?.toString() ?? ''));
       _error = null;
@@ -68,33 +76,10 @@ class _VisitedPlacesScreenState extends State<VisitedPlacesScreen> {
   }
 
   Future<void> _open(Map<String, dynamic> place) async {
-    final navigator = Navigator.of(context);
-    var dialogOpen = true;
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => const _OpeningLandmarkDialog(),
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => LandmarkJournalScreen(place: place)),
     );
-    try {
-      final position = await LocationService.promptLocationOnce();
-      if (!mounted) return;
-      Navigator.of(context, rootNavigator: true).pop();
-      dialogOpen = false;
-      await navigator.push(MaterialPageRoute(
-        builder: (_) => PlaceDetailsScreen(
-          place: place,
-          userPosition: position,
-          initialSection: 4,
-          openCommunityComposer: true,
-        ),
-      ));
-    } catch (_) {
-      if (!mounted) return;
-      if (dialogOpen) Navigator.of(context, rootNavigator: true).pop();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not open this landmark.')),
-      );
-    }
   }
 
   String _image(Map<String, dynamic> place) {
@@ -116,7 +101,7 @@ class _VisitedPlacesScreenState extends State<VisitedPlacesScreen> {
       appBar: AppBar(
         backgroundColor: const Color(0xFFF7F7F4),
         surfaceTintColor: Colors.transparent,
-        title: Text('Visited places',
+        title: Text('My journey',
             style: GoogleFonts.poppins(fontWeight: FontWeight.w700)),
       ),
       body: RefreshIndicator(
@@ -155,14 +140,15 @@ class _VisitedPlacesScreenState extends State<VisitedPlacesScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text('${_places.length} places visited',
+                                    Text(
+                                        '${_places.length} places in your journey',
                                         style: GoogleFonts.poppins(
                                             color: Colors.white,
                                             fontSize: 17,
                                             fontWeight: FontWeight.w700)),
                                     const SizedBox(height: 3),
                                     Text(
-                                      'Add ratings, thoughts, photos, and memories from your journey.',
+                                      'Return to your photos and stories, or preserve another visit.',
                                       style: GoogleFonts.poppins(
                                           color: Colors.white70,
                                           fontSize: 10.5,
@@ -186,38 +172,6 @@ class _VisitedPlacesScreenState extends State<VisitedPlacesScreen> {
   }
 }
 
-class _OpeningLandmarkDialog extends StatelessWidget {
-  const _OpeningLandmarkDialog();
-
-  @override
-  Widget build(BuildContext context) => PopScope(
-        canPop: false,
-        child: Dialog(
-          backgroundColor: Colors.white,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          child: Padding(
-            padding: const EdgeInsets.all(22),
-            child: Row(children: [
-              const SizedBox(
-                width: 27,
-                height: 27,
-                child: CircularProgressIndicator(
-                    strokeWidth: 3, color: Color(0xFF176A50)),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Text('Opening landmark...',
-                    style: GoogleFonts.poppins(
-                        fontWeight: FontWeight.w600,
-                        color: const Color(0xFF18372D))),
-              ),
-            ]),
-          ),
-        ),
-      );
-}
-
 class _VisitedPlaceCard extends StatelessWidget {
   final Map<String, dynamic> place;
   final String imageUrl;
@@ -234,12 +188,11 @@ class _VisitedPlaceCard extends StatelessWidget {
     final location = [place['barangay'], place['municipality']]
         .where((value) => value?.toString().trim().isNotEmpty == true)
         .join(', ');
-    final summary = (place['shortSummary'] ?? place['description'] ?? '')
-        .toString()
-        .trim();
+    final summary =
+        (place['shortSummary'] ?? place['description'] ?? '').toString().trim();
     return Semantics(
       button: true,
-      label: 'Share your visit to ${place['name']}',
+      label: 'Open your memories from ${place['name']}',
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(20),
@@ -314,7 +267,7 @@ class _VisitedPlaceCard extends StatelessWidget {
                   ],
                   const SizedBox(height: 9),
                   Row(children: [
-                    Text('Share your visit',
+                    Text('Open memory lane',
                         style: GoogleFonts.poppins(
                             fontSize: 10.5,
                             color: const Color(0xFF176A50),

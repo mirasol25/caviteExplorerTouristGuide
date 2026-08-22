@@ -47,6 +47,49 @@ export class AdminService {
     });
   }
 
+  async analytics() {
+    const staleBefore = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const [
+      visitors, activeVisitors, landmarks, badges, completedTrips, routes,
+      staleRoutes, partners, redemptions, recentRedemptions, reviews,
+      topLandmarks, topPartners,
+    ] = await Promise.all([
+      this.prisma.user.count({ where: { role: 'user' } }),
+      this.prisma.user.count({ where: { role: 'user', isActive: true } }),
+      this.prisma.landmark.count({ where: { publicationStatus: 'published' } }),
+      this.prisma.userBadge.count(),
+      this.prisma.tripPlan.count({ where: { status: 'COMPLETED' } }),
+      this.prisma.transportRoute.count({ where: { isActive: true } }),
+      this.prisma.transportRoute.findMany({
+        where: { isActive: true, OR: [{ lastVerifiedAt: null }, { lastVerifiedAt: { lt: staleBefore } }] },
+        select: { id: true, name: true, mode: true, lastVerifiedAt: true, updatedAt: true },
+        orderBy: { lastVerifiedAt: 'asc' }, take: 20,
+      }),
+      this.prisma.partnerBusiness.count({ where: { isActive: true, approvalStatus: 'approved' } }),
+      this.prisma.discountRedemption.count(),
+      this.prisma.discountRedemption.count({ where: { redeemedAt: { gte: thirtyDaysAgo } } }),
+      this.prisma.landmarkCommunityPost.count(),
+      this.prisma.landmark.findMany({
+        where: { publicationStatus: 'published' },
+        select: { id: true, name: true, _count: { select: { earnedBy: true, communityPosts: true } } },
+        orderBy: { earnedBy: { _count: 'desc' } }, take: 5,
+      }),
+      this.prisma.partnerBusiness.findMany({
+        where: { approvalStatus: 'approved' },
+        select: { id: true, name: true, _count: { select: { redemptions: true } } },
+        orderBy: { redemptions: { _count: 'desc' } }, take: 5,
+      }),
+    ]);
+    return {
+      generatedAt: new Date(), staleAfterDays: 90,
+      totals: { visitors, activeVisitors, landmarks, badges, completedTrips, routes, partners, redemptions, recentRedemptions, reviews },
+      staleRoutes,
+      topLandmarks: topLandmarks.map((item) => ({ id: item.id, name: item.name, badges: item._count.earnedBy, reviews: item._count.communityPosts })),
+      topPartners: topPartners.map((item) => ({ id: item.id, name: item.name, redemptions: item._count.redemptions })),
+    };
+  }
+
   async updateUser(actorId: string, userId: string, data: { role?: string; isActive?: boolean }) {
     if (actorId === userId && data.role !== undefined) {
       throw new ForbiddenException('You cannot change your own account role. Ask another administrator.');
@@ -68,8 +111,8 @@ export class AdminService {
 
   async createInvite(actorId: string, data: { email: string; name?: string; role: string }) {
     const email = data.email.trim().toLowerCase();
-    if (!email || !['admin', 'editor'].includes(data.role)) {
-      throw new BadRequestException('An email and either admin or editor role are required.');
+    if (!email || !['admin', 'editor', 'partner'].includes(data.role)) {
+      throw new BadRequestException('An email and a valid invited role are required.');
     }
     const token = randomBytes(32).toString('base64url');
     const tokenHash = createHash('sha256').update(token).digest('hex');
@@ -79,8 +122,10 @@ export class AdminService {
       create: { email, name: data.name?.trim() || null, role: data.role, tokenHash, expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), invitedById: actorId },
     });
     await this.audit(actorId, 'invite', 'admin_invite', invite.id, { email, role: data.role });
-    const adminUrl = process.env.ADMIN_WEB_URL || process.env.FRONTEND_URL || 'http://localhost:3001';
-    const inviteUrl = `${adminUrl.replace(/\/$/, '')}/accept-invite?token=${encodeURIComponent(token)}`;
+    const adminUrl = process.env.ADMIN_INVITE_WEB_URL || process.env.ADMIN_WEB_URL || process.env.FRONTEND_URL || 'http://localhost:3001';
+    const partnerUrl = process.env.PARTNER_INVITE_WEB_URL || `${process.env.MOBILE_BACKEND_URL || process.env.BACKEND_URL || 'http://10.0.2.2:3000'}/auth/partner-invite`;
+    const inviteBaseUrl = data.role === 'partner' ? partnerUrl : `${adminUrl.replace(/\/$/, '')}/accept-invite`;
+    const inviteUrl = `${inviteBaseUrl}${inviteBaseUrl.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
     const smtpHost = process.env.SMTP_HOST;
     const smtpUser = process.env.SMTP_USER;
     const smtpPassword = process.env.SMTP_PASSWORD;
@@ -89,14 +134,25 @@ export class AdminService {
       throw new BadRequestException('Invitation was created, but email delivery is not configured. Add SMTP settings to the backend .env.');
     }
     const transporter = nodemailer.createTransport({ host: smtpHost, port: Number(process.env.SMTP_PORT || 465), secure: (process.env.SMTP_SECURE || 'true') === 'true', auth: { user: smtpUser, pass: smtpPassword } });
-    await transporter.sendMail({
+    const delivery = await transporter.sendMail({
       from: smtpFrom,
       to: email,
       subject: `You are invited to Cavite Explorer as ${data.role}`,
-      text: `You have been invited to Cavite Explorer as an ${data.role}. Create your password using this secure link. It expires in 7 days:\n\n${inviteUrl}`,
-      html: `<p>You have been invited to <strong>Cavite Explorer</strong> as an <strong>${data.role}</strong>.</p><p><a href="${inviteUrl}">Create your password</a></p><p>This link expires in 7 days.</p>`,
+      text: `You have been invited to Cavite Explorer as ${data.role}. Open this secure invitation link to continue. It expires in 7 days:\n\n${inviteUrl}`,
+      html: `<div style="font-family:Arial,sans-serif;color:#202520;line-height:1.5;max-width:560px"><p>You have been invited to <strong>Cavite Explorer</strong> as <strong>${data.role}</strong>.</p><p style="margin:24px 0"><a href="${inviteUrl}" style="display:inline-block;background:#176a50;color:#ffffff;text-decoration:none;font-weight:700;padding:13px 20px;border-radius:10px">Open secure invitation</a></p><p style="font-size:13px;color:#66706a">If the button does not open, use this link:<br><a href="${inviteUrl}" style="color:#176a50;word-break:break-all">${inviteUrl}</a></p><p>This secure invitation expires in 7 days.</p></div>`,
     });
-    return { invite, inviteUrl, emailed: true };
+    const accepted = (delivery.accepted || []).map(String);
+    const rejected = (delivery.rejected || []).map(String);
+    if (!accepted.some((recipient) => recipient.toLowerCase() === email)) {
+      throw new BadRequestException(`The invitation was created, but the email provider did not accept delivery to ${email}.`);
+    }
+    console.log(`Invitation email accepted by SMTP: role=${data.role}; recipient=${email}; messageId=${delivery.messageId}`);
+    return {
+      invite,
+      inviteUrl,
+      emailed: true,
+      delivery: { accepted, rejected, messageId: delivery.messageId },
+    };
   }
 
   places() { return this.prisma.landmark.findMany({ orderBy: { name: 'asc' } }); }
@@ -197,6 +253,11 @@ export class AdminService {
   }
 
   routes() { return this.prisma.transportRoute.findMany({ include: { stops: { include: { stop: true }, orderBy: { sequence: 'asc' } } }, orderBy: { name: 'asc' } }); }
+  async verifyRoute(actorId: string, id: string) {
+    const route = await this.prisma.transportRoute.update({ where: { id }, data: { lastVerifiedAt: new Date() } });
+    await this.audit(actorId, 'verify', 'transport_route', id, { lastVerifiedAt: route.lastVerifiedAt });
+    return route;
+  }
   async saveRoute(actorId: string, data: any, id?: string) {
     const numberOrNull = (value: unknown) => value === '' || value === undefined || value === null ? null : Number(value);
     const normalizeGeometry = (value: unknown) => {
@@ -373,10 +434,98 @@ export class AdminService {
     return { deleted: true, terminal };
   }
 
-  businesses() { return this.prisma.partnerBusiness.findMany({ include: { offers: true }, orderBy: { name: 'asc' } }); }
+  businesses() { return this.prisma.partnerBusiness.findMany({ include: { owner: { select: { id: true, name: true, email: true } }, offers: true }, orderBy: [{ approvalStatus: 'asc' }, { name: 'asc' }] }); }
+
+  async reviewBusiness(actorId: string, id: string, input: { decision: string; reason?: string }) {
+    const business = await this.prisma.partnerBusiness.findUnique({ where: { id } });
+    if (!business) throw new BadRequestException('Partner application not found.');
+    if (!['approve', 'changes', 'reject'].includes(input.decision)) throw new BadRequestException('Choose approve, request changes, or reject.');
+    if (input.decision === 'approve') {
+      if (!business.ownerUserId || business.latitude == null || business.longitude == null || !business.proposedDiscountTitle || !business.proposedDiscountLabel) {
+        throw new BadRequestException('The partner must complete the location and discount proposal before approval.');
+      }
+      const radians = (value: number) => (value * Math.PI) / 180;
+      const distanceMeters = (latitude: number, longitude: number) => {
+        const dLat = radians(latitude - business.latitude!);
+        const dLng = radians(longitude - business.longitude!);
+        const value = Math.sin(dLat / 2) ** 2 + Math.cos(radians(business.latitude!)) * Math.cos(radians(latitude)) * Math.sin(dLng / 2) ** 2;
+        return 6371000 * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
+      };
+      const landmarks = await this.prisma.landmark.findMany({ select: { id: true, latitude: true, longitude: true } });
+      const nearbyLandmarkIds = landmarks.filter((landmark) => distanceMeters(landmark.latitude, landmark.longitude) <= 2500).map((landmark) => landmark.id);
+      if (!nearbyLandmarkIds.length) throw new BadRequestException('This business is not within 2.5 km of a landmark badge.');
+      const approved = await this.prisma.$transaction(async (transaction) => {
+        const updated = await transaction.partnerBusiness.update({
+          where: { id },
+          data: { proposedBadgeLandmarkId: nearbyLandmarkIds[0], approvalStatus: 'approved', isActive: true, approvedAt: new Date(), approvedById: actorId, rejectionReason: null },
+        });
+        await transaction.discountOffer.updateMany({ where: { businessId: id, OR: [{ badgeLandmarkId: { notIn: nearbyLandmarkIds } }, { badgeLandmarkId: null }] }, data: { isActive: false } });
+        for (const finalLandmarkId of nearbyLandmarkIds) {
+          const existingOffer = await transaction.discountOffer.findFirst({ where: { businessId: id, badgeLandmarkId: finalLandmarkId } });
+          const offerData = {
+            badgeLandmarkId: finalLandmarkId,
+            title: business.proposedDiscountTitle,
+            description: business.proposedDiscountDescription || business.proposedDiscountTitle,
+            discountLabel: business.proposedDiscountLabel,
+            isActive: true,
+          };
+          if (existingOffer) await transaction.discountOffer.update({ where: { id: existingOffer.id }, data: offerData });
+          else await transaction.discountOffer.create({ data: { businessId: id, ...offerData } });
+        }
+        return updated;
+      });
+      await this.audit(actorId, 'approve', 'partner_business', id);
+      return approved;
+    }
+    const status = input.decision === 'changes' ? 'changes_requested' : 'rejected';
+    const reviewed = await this.prisma.partnerBusiness.update({
+      where: { id },
+      data: { approvalStatus: status, isActive: false, rejectionReason: String(input.reason || '').trim() || (status === 'changes_requested' ? 'Please update the requested information.' : 'Application was not approved.') },
+    });
+    await this.prisma.discountOffer.updateMany({ where: { businessId: id }, data: { isActive: false } });
+    await this.audit(actorId, status, 'partner_business', id, { reason: reviewed.rejectionReason });
+    return reviewed;
+  }
   async saveBusiness(actorId: string, data: any, id?: string) {
-    const business = id ? await this.prisma.partnerBusiness.update({ where: { id }, data }) : await this.prisma.partnerBusiness.create({ data });
-    await this.audit(actorId, id ? 'update' : 'create', 'partner_business', business.id, data);
+    const partnerEmail = String(data.partnerEmail || '').trim().toLowerCase();
+    const owner = partnerEmail
+      ? await this.prisma.user.findUnique({ where: { email: partnerEmail } })
+      : null;
+    if (partnerEmail && !owner) {
+      throw new BadRequestException('The partner email must belong to an existing Cavite Explorer account. Ask the partner to register first.');
+    }
+    const latitude = data.latitude === '' || data.latitude == null ? null : Number(data.latitude);
+    const longitude = data.longitude === '' || data.longitude == null ? null : Number(data.longitude);
+    if ((latitude != null && !Number.isFinite(latitude)) || (longitude != null && !Number.isFinite(longitude))) {
+      throw new BadRequestException('Partner coordinates are invalid.');
+    }
+    const businessData = {
+      name: String(data.name || '').trim(),
+      category: String(data.category || '').trim(),
+      address: String(data.address || '').trim(),
+      municipality: String(data.municipality || '').trim(),
+      barangay: data.barangay ? String(data.barangay).trim() : null,
+      latitude,
+      longitude,
+      contact: data.contact ? String(data.contact).trim() : null,
+      description: data.description ? String(data.description).trim() : null,
+      image: data.image ? String(data.image).trim() : null,
+      operatingHours: data.operatingHours ? String(data.operatingHours).trim() : null,
+      ownerUserId: owner?.id ?? null,
+      isActive: data.isActive !== false,
+    };
+    if (!businessData.name || !businessData.category || !businessData.address || !businessData.municipality) {
+      throw new BadRequestException('Name, category, address, and municipality are required.');
+    }
+    const business = await this.prisma.$transaction(async (transaction) => {
+      if (owner && owner.role !== 'partner') {
+        await transaction.user.update({ where: { id: owner.id }, data: { role: 'partner' } });
+      }
+      return id
+        ? transaction.partnerBusiness.update({ where: { id }, data: businessData })
+        : transaction.partnerBusiness.create({ data: businessData });
+    });
+    await this.audit(actorId, id ? 'update' : 'create', 'partner_business', business.id, { ...businessData, partnerEmail });
     return business;
   }
 
