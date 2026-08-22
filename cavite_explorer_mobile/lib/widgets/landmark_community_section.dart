@@ -1,8 +1,10 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../services/api_service.dart';
@@ -23,8 +25,7 @@ class LandmarkCommunitySection extends StatefulWidget {
       _LandmarkCommunitySectionState();
 }
 
-class _LandmarkCommunitySectionState
-    extends State<LandmarkCommunitySection> {
+class _LandmarkCommunitySectionState extends State<LandmarkCommunitySection> {
   bool _loading = true;
   bool _canPost = false;
   String? _error;
@@ -67,11 +68,11 @@ class _LandmarkCommunitySectionState
           .toList();
       _canPost = false;
       if (responses.length > 1 && responses[1].statusCode == 200) {
-        final badges =
-            json.decode(responses[1].body) as Map<String, dynamic>;
-        _canPost = ((badges['earned'] as List?) ?? const []).whereType<Map>().any(
-              (badge) => badge['landmarkId']?.toString() == _landmarkId,
-            );
+        final badges = json.decode(responses[1].body) as Map<String, dynamic>;
+        _canPost =
+            ((badges['earned'] as List?) ?? const []).whereType<Map>().any(
+                  (badge) => badge['landmarkId']?.toString() == _landmarkId,
+                );
       }
       _error = null;
       if (_canPost && widget.openComposerOnLoad && !_composerOpened) {
@@ -135,7 +136,8 @@ class _LandmarkCommunitySectionState
                           fontSize: 30,
                           fontWeight: FontWeight.w800)),
                   if (_reviewCount > 0) _Stars(rating: _average, size: 17),
-                  Text('$_reviewCount visitor ${_reviewCount == 1 ? 'story' : 'stories'}',
+                  Text(
+                      '$_reviewCount visitor ${_reviewCount == 1 ? 'story' : 'stories'}',
                       style: GoogleFonts.poppins(
                           color: Colors.white70, fontSize: 10)),
                 ],
@@ -157,8 +159,8 @@ class _LandmarkCommunitySectionState
         ),
         const SizedBox(height: 20),
         Text('Visitor photos and memories',
-            style: GoogleFonts.poppins(
-                fontSize: 16, fontWeight: FontWeight.w700)),
+            style:
+                GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w700)),
         const SizedBox(height: 4),
         Text('Stories shared by verified landmark visitors.',
             style: GoogleFonts.poppins(
@@ -311,6 +313,7 @@ class _ShareMemorySheetState extends State<_ShareMemorySheet> {
   final _thoughts = TextEditingController();
   final _picker = ImagePicker();
   List<XFile> _photos = [];
+  List<Uint8List> _photoBytes = [];
   int _rating = 5;
   bool _saving = false;
   String? _error;
@@ -328,7 +331,24 @@ class _ShareMemorySheetState extends State<_ShareMemorySheet> {
       maxWidth: 1800,
     );
     if (!mounted || selected.isEmpty) return;
-    setState(() => _photos = selected.take(6).toList());
+    final photos = selected.take(6).toList();
+    final bytes = await Future.wait(photos.map((photo) => photo.readAsBytes()));
+    if (!mounted) return;
+    setState(() {
+      _photos = photos;
+      _photoBytes = bytes;
+    });
+  }
+
+  MediaType _contentType(String filename) {
+    final extension = filename.toLowerCase().split('.').last;
+    return switch (extension) {
+      'png' => MediaType('image', 'png'),
+      'webp' => MediaType('image', 'webp'),
+      'heic' => MediaType('image', 'heic'),
+      'heif' => MediaType('image', 'heif'),
+      _ => MediaType('image', 'jpeg'),
+    };
   }
 
   Future<void> _save() async {
@@ -347,11 +367,13 @@ class _ShareMemorySheetState extends State<_ShareMemorySheet> {
         ..fields['rating'] = _rating.toString()
         ..fields['memory'] = _memory.text.trim()
         ..fields['thoughts'] = _thoughts.text.trim();
-      for (final photo in _photos) {
-        request.files.add(await http.MultipartFile.fromPath(
+      for (var index = 0; index < _photos.length; index++) {
+        final photo = _photos[index];
+        request.files.add(http.MultipartFile.fromBytes(
           'photos',
-          photo.path,
+          _photoBytes[index],
           filename: photo.name,
+          contentType: _contentType(photo.name),
         ));
       }
       final response = await request.send();
@@ -365,8 +387,8 @@ class _ShareMemorySheetState extends State<_ShareMemorySheet> {
       if (mounted) Navigator.pop(context, true);
     } catch (error) {
       if (mounted) {
-        setState(() =>
-            _error = error.toString().replaceFirst('Exception: ', ''));
+        setState(
+            () => _error = error.toString().replaceFirst('Exception: ', ''));
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -417,6 +439,26 @@ class _ShareMemorySheetState extends State<_ShareMemorySheet> {
                     ? 'Add photos'
                     : '${_photos.length} photos selected'),
               ),
+              if (_photoBytes.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                SizedBox(
+                  height: 86,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _photoBytes.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    itemBuilder: (_, index) => ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.memory(
+                        _photoBytes[index],
+                        width: 110,
+                        height: 86,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 12),
               TextField(
                 controller: _memory,

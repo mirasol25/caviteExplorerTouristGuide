@@ -5,6 +5,18 @@ import { PlacesService } from './places.service';
 import { AdminGuard, NeonGuard } from '../auth/neon.guard';
 import { CloudinaryStorageService } from '../storage/cloudinary-storage.service';
 
+const acceptImageUpload = (
+  _req: unknown,
+  file: Express.Multer.File,
+  callback: (error: Error | null, acceptFile: boolean) => void,
+) => {
+  const imageMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+  const hasImageExtension = /\.(jpe?g|png|webp|heic|heif)$/i.test(file.originalname || '');
+  const valid = imageMimeTypes.includes(file.mimetype) ||
+    (file.mimetype === 'application/octet-stream' && hasImageExtension);
+  callback(valid ? null : new BadRequestException('Upload a JPEG, PNG, WebP, HEIC, or HEIF image.'), valid);
+};
+
 @Controller('places')
 export class PlacesController {
   constructor(private readonly placesService: PlacesService, private readonly storage: CloudinaryStorageService) {}
@@ -59,10 +71,7 @@ export class PlacesController {
   @UseInterceptors(FilesInterceptor('photos', 8, {
     storage: memoryStorage(),
     limits: { fileSize: 6 * 1024 * 1024 },
-    fileFilter: (_req, file, callback) => callback(
-      null,
-      ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'].includes(file.mimetype),
-    ),
+    fileFilter: acceptImageUpload,
   }))
   async saveMemory(
     @Req() req: any,
@@ -94,10 +103,7 @@ export class PlacesController {
   @UseInterceptors(FilesInterceptor('photos', 6, {
     storage: memoryStorage(),
     limits: { fileSize: 6 * 1024 * 1024 },
-    fileFilter: (_req, file, callback) => callback(
-      null,
-      ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'].includes(file.mimetype),
-    ),
+    fileFilter: acceptImageUpload,
   }))
   async saveCommunityPost(
     @Req() req: any,

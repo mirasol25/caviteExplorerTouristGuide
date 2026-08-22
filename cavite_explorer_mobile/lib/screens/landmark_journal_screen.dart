@@ -1,8 +1,10 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
@@ -479,6 +481,7 @@ class _MemoryComposerState extends State<_MemoryComposer> {
   final _favorite = TextEditingController();
   final _picker = ImagePicker();
   List<XFile> _photos = [];
+  List<Uint8List> _photoBytes = [];
   DateTime _visitDate = DateTime.now();
   String _mood = '😊 Happy';
   int _rating = 5;
@@ -507,9 +510,25 @@ class _MemoryComposerState extends State<_MemoryComposer> {
   Future<void> _pickPhotos() async {
     final selected =
         await _picker.pickMultiImage(imageQuality: 82, maxWidth: 1800);
-    if (selected.isNotEmpty && mounted) {
-      setState(() => _photos = selected.take(8).toList());
-    }
+    if (selected.isEmpty) return;
+    final photos = selected.take(8).toList();
+    final bytes = await Future.wait(photos.map((photo) => photo.readAsBytes()));
+    if (!mounted) return;
+    setState(() {
+      _photos = photos;
+      _photoBytes = bytes;
+    });
+  }
+
+  MediaType _contentType(String filename) {
+    final extension = filename.toLowerCase().split('.').last;
+    return switch (extension) {
+      'png' => MediaType('image', 'png'),
+      'webp' => MediaType('image', 'webp'),
+      'heic' => MediaType('image', 'heic'),
+      'heif' => MediaType('image', 'heif'),
+      _ => MediaType('image', 'jpeg'),
+    };
   }
 
   Future<void> _save() async {
@@ -534,10 +553,14 @@ class _MemoryComposerState extends State<_MemoryComposer> {
         ..fields['rating'] = _rating.toString()
         ..fields['visitedAt'] = _visitDate.toIso8601String()
         ..fields['sharePublicly'] = _sharePublicly.toString();
-      for (final photo in _photos) {
-        request.files.add(await http.MultipartFile.fromPath(
-            'photos', photo.path,
-            filename: photo.name));
+      for (var index = 0; index < _photos.length; index++) {
+        final photo = _photos[index];
+        request.files.add(http.MultipartFile.fromBytes(
+          'photos',
+          _photoBytes[index],
+          filename: photo.name,
+          contentType: _contentType(photo.name),
+        ));
       }
       final response = await request.send();
       final text = await response.stream.bytesToString();
@@ -678,6 +701,26 @@ class _MemoryComposerState extends State<_MemoryComposer> {
                     ? 'Add photos'
                     : '${_photos.length} photos selected'),
               ),
+              if (_photoBytes.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                SizedBox(
+                  height: 86,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _photoBytes.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    itemBuilder: (_, index) => ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.memory(
+                        _photoBytes[index],
+                        width: 110,
+                        height: 86,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 8),
               SwitchListTile.adaptive(
                 contentPadding: EdgeInsets.zero,

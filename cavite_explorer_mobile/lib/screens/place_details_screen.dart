@@ -103,10 +103,11 @@ class _PlaceDetailsScreenState extends State<PlaceDetailsScreen>
     final id = widget.place['id'];
     try {
       final response = await (_favorite
-          ? http.delete(ApiService.uri('/places/$id/favorite'),
-              headers: {'Authorization': 'Bearer $token'})
-          : http.post(ApiService.uri('/places/$id/favorite'),
-              headers: {'Authorization': 'Bearer $token'}));
+              ? http.delete(ApiService.uri('/places/$id/favorite'),
+                  headers: {'Authorization': 'Bearer $token'})
+              : http.post(ApiService.uri('/places/$id/favorite'),
+                  headers: {'Authorization': 'Bearer $token'}))
+          .timeout(const Duration(seconds: 20));
       if (response.statusCode < 200 || response.statusCode >= 300) {
         var message = 'Could not update saved landmark.';
         try {
@@ -118,7 +119,11 @@ class _PlaceDetailsScreenState extends State<PlaceDetailsScreen>
         throw Exception(message);
       }
       if (mounted) {
-        setState(() => _favorite = !_favorite);
+        final body = response.body.isEmpty ? null : json.decode(response.body);
+        final saved = body is Map && body['saved'] is bool
+            ? body['saved'] as bool
+            : !_favorite;
+        setState(() => _favorite = saved);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(_favorite
                 ? 'Landmark saved.'
@@ -645,27 +650,39 @@ class _PlaceDetailsScreenState extends State<PlaceDetailsScreen>
           Positioned(
             top: MediaQuery.of(context).padding.top + 10,
             right: 20,
-            child: Semantics(
-              button: true,
-              label: _favorite
-                  ? 'Remove $name from saved landmarks'
-                  : 'Save $name',
-              child: IconButton(
-                tooltip: _favorite ? 'Remove from saved' : 'Save landmark',
-                onPressed: _favoriteBusy ? null : _toggleFavorite,
-                style: IconButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: const Color(0xFF176A50),
-                    elevation: 4,
-                    shadowColor: Colors.black26),
-                icon: _favoriteBusy
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2))
-                    : Icon(_favorite
-                        ? Icons.bookmark_rounded
-                        : Icons.bookmark_border_rounded),
+            child: Material(
+              color: Colors.white,
+              elevation: 4,
+              shadowColor: Colors.black26,
+              shape: const CircleBorder(),
+              clipBehavior: Clip.antiAlias,
+              child: Semantics(
+                button: true,
+                label: _favorite
+                    ? 'Remove $name from saved landmarks'
+                    : 'Save $name',
+                child: InkWell(
+                  onTap: _favoriteBusy ? null : _toggleFavorite,
+                  customBorder: const CircleBorder(),
+                  child: SizedBox(
+                    width: 56,
+                    height: 56,
+                    child: Center(
+                      child: _favoriteBusy
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(strokeWidth: 2))
+                          : Icon(
+                              _favorite
+                                  ? Icons.bookmark_rounded
+                                  : Icons.bookmark_border_rounded,
+                              color: const Color(0xFF176A50),
+                              size: 28,
+                            ),
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
