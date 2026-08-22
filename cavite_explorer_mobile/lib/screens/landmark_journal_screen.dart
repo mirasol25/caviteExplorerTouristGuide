@@ -10,6 +10,7 @@ import 'package:intl/intl.dart';
 
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
+import '../widgets/photo_gallery_viewer.dart';
 import 'place_details_screen.dart';
 
 class LandmarkJournalScreen extends StatefulWidget {
@@ -446,16 +447,48 @@ class _MemoryCard extends StatelessWidget {
                   scrollDirection: Axis.horizontal,
                   itemCount: photos.length,
                   separatorBuilder: (_, __) => const SizedBox(width: 7),
-                  itemBuilder: (_, index) => ClipRRect(
-                    borderRadius: BorderRadius.circular(13),
-                    child: Image.network(ApiService.assetUrl(photos[index]),
-                        width: 155,
-                        fit: BoxFit.cover,
-                        cacheWidth: 460,
-                        errorBuilder: (_, __, ___) => Container(
+                  itemBuilder: (_, index) => Semantics(
+                    button: true,
+                    label: 'Open memory photo ${index + 1} of ${photos.length}',
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(13),
+                      onTap: () => showPhotoGallery(
+                        context: context,
+                        photos: photos,
+                        initialIndex: index,
+                        title: memory['title']?.toString().trim().isNotEmpty ==
+                                true
+                            ? memory['title'].toString()
+                            : 'My visit photos',
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(13),
+                        child: Stack(children: [
+                          Image.network(
+                            ApiService.assetUrl(photos[index]),
                             width: 155,
-                            color: Colors.grey.shade200,
-                            child: const Icon(Icons.broken_image_outlined))),
+                            height: 118,
+                            fit: BoxFit.cover,
+                            cacheWidth: 460,
+                            errorBuilder: (_, __, ___) => Container(
+                              width: 155,
+                              color: Colors.grey.shade200,
+                              child: const Icon(Icons.broken_image_outlined),
+                            ),
+                          ),
+                          const Positioned(
+                            right: 7,
+                            bottom: 7,
+                            child: CircleAvatar(
+                              radius: 14,
+                              backgroundColor: Colors.black54,
+                              child: Icon(Icons.fullscreen_rounded,
+                                  color: Colors.white, size: 17),
+                            ),
+                          ),
+                        ]),
+                      ),
+                    ),
                   ),
                 ),
               ),

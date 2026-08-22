@@ -9,6 +9,8 @@ import 'package:image_picker/image_picker.dart';
 
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
+import '../screens/landmark_reviews_screen.dart';
+import 'visitor_review_card.dart';
 
 class LandmarkCommunitySection extends StatefulWidget {
   final Map<String, dynamic> place;
@@ -189,92 +191,39 @@ class _LandmarkCommunitySectionState extends State<LandmarkCommunitySection> {
               ],
             ),
           )
-        else
-          ..._posts.map(_postCard),
-      ],
-    );
-  }
-
-  Widget _postCard(Map<String, dynamic> post) {
-    final user = post['user'] is Map
-        ? Map<String, dynamic>.from(post['user'] as Map)
-        : const <String, dynamic>{};
-    final photos = ((post['photos'] as List?) ?? const [])
-        .map((value) => value.toString())
-        .toList();
-    final memory = post['memory']?.toString() ?? '';
-    final thoughts = post['thoughts']?.toString() ?? '';
-    return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.all(15),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFE1E9E1)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              CircleAvatar(
-                radius: 18,
-                backgroundColor: const Color(0xFFE3F0E8),
-                child: Text(
-                  (user['name']?.toString().trim().isNotEmpty ?? false)
-                      ? user['name'].toString()[0].toUpperCase()
-                      : 'V',
-                  style: const TextStyle(
-                      color: Color(0xFF176A50), fontWeight: FontWeight.bold),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(user['name']?.toString() ?? 'Verified visitor',
-                    style: GoogleFonts.poppins(
-                        fontSize: 12.5, fontWeight: FontWeight.w700)),
-              ),
-              _Stars(rating: (post['rating'] as num?)?.toDouble() ?? 0),
-            ],
-          ),
-          if (photos.isNotEmpty) ...[
-            const SizedBox(height: 13),
+        else ...[
+          ..._posts.take(2).map((post) => VisitorReviewCard(post: post)),
+          if (_posts.length > 2)
             SizedBox(
-              height: 150,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: photos.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 8),
-                itemBuilder: (_, index) => ClipRRect(
-                  borderRadius: BorderRadius.circular(14),
-                  child: Image.network(
-                    ApiService.assetUrl(photos[index]),
-                    width: 210,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
-                      width: 210,
-                      color: Colors.grey.shade200,
-                      child: const Icon(Icons.broken_image_outlined),
+              width: double.infinity,
+              height: 50,
+              child: OutlinedButton.icon(
+                onPressed: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          LandmarkReviewsScreen(place: widget.place),
                     ),
+                  );
+                  if (mounted) await _load();
+                },
+                icon: const Icon(Icons.reviews_outlined),
+                label: Text(
+                  'See all $_reviewCount reviews',
+                  style: GoogleFonts.poppins(fontWeight: FontWeight.w700),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF176A50),
+                  side: const BorderSide(color: Color(0xFFBFD4C8)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
                   ),
                 ),
               ),
             ),
-          ],
-          if (memory.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Text(memory,
-                style: GoogleFonts.poppins(
-                    fontSize: 13, fontWeight: FontWeight.w600, height: 1.45)),
-          ],
-          if (thoughts.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Text(thoughts,
-                style: GoogleFonts.poppins(
-                    fontSize: 11, color: Colors.grey.shade700, height: 1.5)),
-          ],
         ],
-      ),
+      ],
     );
   }
 }

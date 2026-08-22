@@ -40,6 +40,7 @@ class _PlaceDetailsScreenState extends State<PlaceDetailsScreen>
   bool _partnersLoading = true;
   String? _partnersError;
   List<Map<String, dynamic>> _coveredPartners = [];
+  int _contentRefreshKey = 0;
   final PageController _imagePageController = PageController();
   Timer? _imageSlider;
   AnimationController? _badgePulse;
@@ -206,6 +207,15 @@ class _PlaceDetailsScreenState extends State<PlaceDetailsScreen>
     } finally {
       if (mounted) setState(() => _partnersLoading = false);
     }
+  }
+
+  Future<void> _refreshContent() async {
+    await Future.wait([
+      _loadFavorite(),
+      _loadBadgeClaimed(),
+      _loadCoveredPartners(),
+    ]);
+    if (mounted) setState(() => _contentRefreshKey++);
   }
 
   void _openPartner(Map<String, dynamic> partner) {
@@ -446,187 +456,204 @@ class _PlaceDetailsScreenState extends State<PlaceDetailsScreen>
             ),
           ),
           // 2. SCROLLABLE CONTENT
-          SingleChildScrollView(
-            child: Column(
-              children: [
-                SizedBox(height: screenHeight * 0.38),
-                Container(
-                  width: double.infinity,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFFAF8F5),
-                    borderRadius:
-                        BorderRadius.vertical(top: Radius.circular(32)),
-                  ),
-                  padding: const EdgeInsets.only(
-                      top: 12, left: 24, right: 24, bottom: 40),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Center(
-                        child: Container(
-                            width: 40,
-                            height: 5,
-                            decoration: BoxDecoration(
-                                color: Colors.grey[300],
-                                borderRadius: BorderRadius.circular(10))),
-                      ),
-                      const SizedBox(height: 24),
-                      if (_text(widget.place['category']).isNotEmpty) ...[
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 5),
-                          decoration: BoxDecoration(
-                              color: const Color(0xFFE8F2E8),
-                              borderRadius: BorderRadius.circular(99)),
-                          child: Text(
-                              _text(widget.place['category']).toUpperCase(),
-                              style: GoogleFonts.poppins(
-                                  fontSize: 10,
-                                  letterSpacing: .7,
-                                  color: const Color(0xFF176A50),
-                                  fontWeight: FontWeight.w700)),
-                        ),
-                        const SizedBox(height: 10),
-                      ],
-                      Text(name,
-                          style: GoogleFonts.poppins(
-                              fontSize: 28,
-                              fontWeight: FontWeight.bold,
-                              color: const Color(0xFF1A1A1A),
-                              height: 1.12)),
-                      const SizedBox(height: 14),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _buildMetaChip(Icons.location_on_outlined, location,
-                              const Color(0xFFF1F3F1), const Color(0xFF33413A)),
-                          if (distanceText.isNotEmpty)
-                            _buildMetaChip(Icons.near_me_rounded, distanceText,
-                                const Color(0xFFEAF1FF), Colors.blueAccent),
-                        ],
-                      ),
-                      const SizedBox(height: 22),
-                      _buildDetailTabs(
-                        hasVisit: visitorInformation.isNotEmpty,
-                        hasHistory: historicalInformation.isNotEmpty ||
-                            _list(widget.place['importantPeople']).isNotEmpty ||
-                            _list(widget.place['importantEvents']).isNotEmpty ||
-                            _list(widget.place['interestingFacts']).isNotEmpty,
-                        hasReminders: reminders.isNotEmpty,
-                      ),
-                      const SizedBox(height: 18),
-                      if (_detailSection == 0) ...[
-                        if (shortSummary.isNotEmpty) ...[
-                          Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(16),
+          RefreshIndicator(
+            color: const Color(0xFF176A50),
+            onRefresh: _refreshContent,
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              child: Column(
+                children: [
+                  SizedBox(height: screenHeight * 0.38),
+                  Container(
+                    width: double.infinity,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFFAF8F5),
+                      borderRadius:
+                          BorderRadius.vertical(top: Radius.circular(32)),
+                    ),
+                    padding: const EdgeInsets.only(
+                        top: 12, left: 24, right: 24, bottom: 40),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Center(
+                          child: Container(
+                              width: 40,
+                              height: 5,
                               decoration: BoxDecoration(
-                                  color: const Color(0xFFF0F6F0),
-                                  borderRadius: BorderRadius.circular(16)),
-                              child: Text(shortSummary,
-                                  style: GoogleFonts.poppins(
-                                      fontSize: 15,
-                                      color: const Color(0xFF244A3B),
-                                      fontWeight: FontWeight.w600,
-                                      height: 1.5))),
-                          const SizedBox(height: 18),
+                                  color: Colors.grey[300],
+                                  borderRadius: BorderRadius.circular(10))),
+                        ),
+                        const SizedBox(height: 24),
+                        if (_text(widget.place['category']).isNotEmpty) ...[
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                                color: const Color(0xFFE8F2E8),
+                                borderRadius: BorderRadius.circular(99)),
+                            child: Text(
+                                _text(widget.place['category']).toUpperCase(),
+                                style: GoogleFonts.poppins(
+                                    fontSize: 10,
+                                    letterSpacing: .7,
+                                    color: const Color(0xFF176A50),
+                                    fontWeight: FontWeight.w700)),
+                          ),
+                          const SizedBox(height: 10),
                         ],
-                        Text('About this place',
+                        Text(name,
                             style: GoogleFonts.poppins(
-                                fontSize: 13,
-                                color: const Color(0xFF273C32),
-                                fontWeight: FontWeight.w700)),
-                        const SizedBox(height: 8),
-                        Text(description,
-                            style: GoogleFonts.poppins(
-                                fontSize: 14,
-                                color: Colors.grey[700],
-                                height: 1.58)),
+                                fontSize: 28,
+                                fontWeight: FontWeight.bold,
+                                color: const Color(0xFF1A1A1A),
+                                height: 1.12)),
+                        const SizedBox(height: 14),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _buildMetaChip(
+                                Icons.location_on_outlined,
+                                location,
+                                const Color(0xFFF1F3F1),
+                                const Color(0xFF33413A)),
+                            if (distanceText.isNotEmpty)
+                              _buildMetaChip(
+                                  Icons.near_me_rounded,
+                                  distanceText,
+                                  const Color(0xFFEAF1FF),
+                                  Colors.blueAccent),
+                          ],
+                        ),
                         const SizedBox(height: 22),
-                        ValueListenableBuilder<List<Map<String, dynamic>>>(
-                          valueListenable:
-                              VisitTrackingController.instance.visits,
-                          builder: (_, visits, __) {
-                            Map<String, dynamic>? activeVisit;
-                            final landmarkId = widget.place['id']?.toString();
-                            for (final visit in visits) {
-                              if (visit['landmarkId']?.toString() ==
-                                  landmarkId) {
-                                activeVisit = visit;
-                                break;
-                              }
-                            }
-                            return _buildLandmarkBadge(
-                              name: badgeName,
-                              description: badgeDescription,
-                              iconName: _text(widget.place['badgeIcon']),
-                              imagePath: _text(widget.place['badgeImage']),
-                              color: badgeColor,
-                              requiredMinutes: badgeMinutes,
-                              activeVisit: activeVisit,
-                              claimed: _badgeClaimed,
-                            );
-                          },
+                        _buildDetailTabs(
+                          hasVisit: visitorInformation.isNotEmpty,
+                          hasHistory: historicalInformation.isNotEmpty ||
+                              _list(widget.place['importantPeople'])
+                                  .isNotEmpty ||
+                              _list(widget.place['importantEvents'])
+                                  .isNotEmpty ||
+                              _list(widget.place['interestingFacts'])
+                                  .isNotEmpty,
+                          hasReminders: reminders.isNotEmpty,
                         ),
-                      ],
-                      if (_detailSection == 1 && visitorInformation.isNotEmpty)
-                        _buildVisitSection(visitorInformation),
-                      if (_detailSection == 2)
-                        _buildInformationSection(
-                            'History and significance',
-                            Icons.account_balance_outlined,
-                            historicalInformation,
-                            lists: {
-                              'Important people':
-                                  _list(widget.place['importantPeople']),
-                              'Important events':
-                                  _list(widget.place['importantEvents']),
-                              'Interesting facts':
-                                  _list(widget.place['interestingFacts'])
-                            }),
-                      if (_detailSection == 3 && reminders.isNotEmpty)
-                        _buildInformationSection('Before you go',
-                            Icons.info_outline_rounded, reminders),
-                      if (_detailSection == 4)
-                        LandmarkCommunitySection(
-                          place: widget.place,
-                          openComposerOnLoad: widget.openCommunityComposer,
-                        ),
-                      if (_detailSection == 5)
-                        _buildCoveredPartnersSection(badgeName),
-                      const SizedBox(height: 26),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 58,
-                        child: ElevatedButton.icon(
-                          onPressed: _openExplore,
-                          icon: Icon(
-                              _badgeClaimed
-                                  ? Icons.replay_rounded
-                                  : Icons.explore_outlined,
-                              color: Colors.white),
-                          label: Text(
-                              _badgeClaimed
-                                  ? 'Revisit this place'
-                                  : 'Explore this landmark',
+                        const SizedBox(height: 18),
+                        if (_detailSection == 0) ...[
+                          if (shortSummary.isNotEmpty) ...[
+                            Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                    color: const Color(0xFFF0F6F0),
+                                    borderRadius: BorderRadius.circular(16)),
+                                child: Text(shortSummary,
+                                    style: GoogleFonts.poppins(
+                                        fontSize: 15,
+                                        color: const Color(0xFF244A3B),
+                                        fontWeight: FontWeight.w600,
+                                        height: 1.5))),
+                            const SizedBox(height: 18),
+                          ],
+                          Text('About this place',
                               style: GoogleFonts.poppins(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white)),
-                          style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF176A50),
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(18)),
-                              shadowColor:
-                                  const Color(0xFF176A50).withOpacity(.28),
-                              elevation: 8),
-                        ),
-                      )
-                    ],
+                                  fontSize: 13,
+                                  color: const Color(0xFF273C32),
+                                  fontWeight: FontWeight.w700)),
+                          const SizedBox(height: 8),
+                          Text(description,
+                              style: GoogleFonts.poppins(
+                                  fontSize: 14,
+                                  color: Colors.grey[700],
+                                  height: 1.58)),
+                          const SizedBox(height: 22),
+                          ValueListenableBuilder<List<Map<String, dynamic>>>(
+                            valueListenable:
+                                VisitTrackingController.instance.visits,
+                            builder: (_, visits, __) {
+                              Map<String, dynamic>? activeVisit;
+                              final landmarkId = widget.place['id']?.toString();
+                              for (final visit in visits) {
+                                if (visit['landmarkId']?.toString() ==
+                                    landmarkId) {
+                                  activeVisit = visit;
+                                  break;
+                                }
+                              }
+                              return _buildLandmarkBadge(
+                                name: badgeName,
+                                description: badgeDescription,
+                                iconName: _text(widget.place['badgeIcon']),
+                                imagePath: _text(widget.place['badgeImage']),
+                                color: badgeColor,
+                                requiredMinutes: badgeMinutes,
+                                activeVisit: activeVisit,
+                                claimed: _badgeClaimed,
+                              );
+                            },
+                          ),
+                        ],
+                        if (_detailSection == 1 &&
+                            visitorInformation.isNotEmpty)
+                          _buildVisitSection(visitorInformation),
+                        if (_detailSection == 2)
+                          _buildInformationSection(
+                              'History and significance',
+                              Icons.account_balance_outlined,
+                              historicalInformation,
+                              lists: {
+                                'Important people':
+                                    _list(widget.place['importantPeople']),
+                                'Important events':
+                                    _list(widget.place['importantEvents']),
+                                'Interesting facts':
+                                    _list(widget.place['interestingFacts'])
+                              }),
+                        if (_detailSection == 3 && reminders.isNotEmpty)
+                          _buildInformationSection('Before you go',
+                              Icons.info_outline_rounded, reminders),
+                        if (_detailSection == 4)
+                          LandmarkCommunitySection(
+                            key: ValueKey(
+                                'community-${widget.place['id']}-$_contentRefreshKey'),
+                            place: widget.place,
+                            openComposerOnLoad: widget.openCommunityComposer,
+                          ),
+                        if (_detailSection == 5)
+                          _buildCoveredPartnersSection(badgeName),
+                        const SizedBox(height: 26),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 58,
+                          child: ElevatedButton.icon(
+                            onPressed: _openExplore,
+                            icon: Icon(
+                                _badgeClaimed
+                                    ? Icons.replay_rounded
+                                    : Icons.explore_outlined,
+                                color: Colors.white),
+                            label: Text(
+                                _badgeClaimed
+                                    ? 'Revisit this place'
+                                    : 'Explore this landmark',
+                                style: GoogleFonts.poppins(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.white)),
+                            style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF176A50),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(18)),
+                                shadowColor:
+                                    const Color(0xFF176A50).withOpacity(.28),
+                                elevation: 8),
+                          ),
+                        )
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
 
