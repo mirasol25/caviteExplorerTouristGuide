@@ -12,9 +12,10 @@
     <uses-permission android:name="android.permission.CAMERA" />
 
     <application
-        android:label="Cavite Explorer"
+        android:label="Cavite Tourist App"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round">
 
         <!-- Some Android emulator OpenGLES drivers fail to present Impeller frames.
              Use the compatible renderer for this app until the emulator driver is stable. -->
