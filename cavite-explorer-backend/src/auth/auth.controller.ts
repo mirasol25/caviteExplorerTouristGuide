@@ -45,12 +45,43 @@ export class AuthController {
     return actual.length === expected.length && timingSafeEqual(actual, expected);
   }
 
+  private publicBaseUrl(req: Request) {
+    const forwardedProto = req.headers['x-forwarded-proto'];
+    const forwardedHost = req.headers['x-forwarded-host'];
+    const proto = (Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto)
+      ?.split(',')[0]
+      .trim() || req.protocol || 'https';
+    const host = (Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost)
+      ?.split(',')[0]
+      .trim() || req.get('host');
+    if (!host) throw new Error('Could not determine the public backend URL');
+    return `${proto}://${host}`.replace(/\/$/, '');
+  }
+
+  private async sendVerificationEmail(email: string, callbackURL: string, origin: string) {
+    const neonAuthUrl = process.env.NEON_AUTH_URL;
+    if (!neonAuthUrl) throw new Error('NEON_AUTH_URL is not configured');
+    const response = await fetch(neonAuthUrl.replace('/sign-in/social', '/send-verification-email'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: origin,
+        Referer: `${origin.replace(/\/$/, '')}/`,
+      },
+      body: JSON.stringify({ email, callbackURL }),
+    });
+    const responseText = await response.text();
+    let data: any = {};
+    try { data = responseText ? JSON.parse(responseText) : {}; } catch {}
+    return { ok: response.ok, status: response.status, data };
+  }
+
   @Get('partner-invite')
   openPartnerInvite(@Query('token') token: string, @Res() res: Response) {
     if (!token) return res.status(400).send('This invitation link is missing its token.');
     const deepLinkBase = process.env.PARTNER_INVITE_URL || 'caviteexplorer://accept-invite';
     const deepLink = `${deepLinkBase}${deepLinkBase.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
-    const intentLink = `intent://accept-invite?token=${encodeURIComponent(token)}#Intent;scheme=caviteexplorer;package=com.example.cavite_explorer_mobile;end`;
+    const intentLink = `intent://accept-invite?token=${encodeURIComponent(token)}#Intent;scheme=caviteexplorer;package=ph.caviteexplorer.app;end`;
     const safeDeepLink = deepLink.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
     const safeIntentLink = intentLink.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
     return res.type('html').send(`<!doctype html>
@@ -190,14 +221,20 @@ body{margin:0;background:#f6f6f0;color:#17241f;font-family:Arial,sans-serif;disp
   }
 
  @Post('register')
-  async registerUser(@Body() body: { email: string; password: string; name: string }, @Res() res: Response) {
+  async registerUser(
+    @Body() body: { email: string; password: string; name: string; client?: 'mobile' | 'web' },
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
     try {
       // 1. Grab all the required URLs from .env
       const neonAuthUrl = process.env.NEON_AUTH_URL;
       const frontendUrl = process.env.FRONTEND_URL;
-      const backendUrl = process.env.BACKEND_URL;
+      const callbackURL = body.client === 'web'
+        ? (process.env.ADMIN_WEB_URL || process.env.FRONTEND_URL)
+        : `${this.publicBaseUrl(req)}/auth/email-verified`;
 
-      if (!neonAuthUrl || !frontendUrl || !backendUrl) {
+      if (!neonAuthUrl || !frontendUrl || !callbackURL) {
         throw new Error("CRITICAL: Missing environment variables in .env");
       }
 
@@ -213,17 +250,34 @@ body{margin:0;background:#f6f6f0;color:#17241f;font-family:Arial,sans-serif;disp
           'Referer': `${frontendUrl}/` // <-- FIX: Security requirement
         },
         body: JSON.stringify({
-          email: body.email,
+          email: body.email.trim().toLowerCase(),
           password: body.password,
           name: body.name,
-          callbackURL: `${backendUrl}/auth/callback`, // <-- FIX: Where to send the email verification link
+          callbackURL,
         }),
       });
 
-      const data = await response.json();
+      const responseText = await response.text();
+      let data: any = {};
+      try { data = responseText ? JSON.parse(responseText) : {}; } catch {}
 
       if (response.ok) {
-        return res.status(201).json({ message: "Registration successful. Please check your email." });
+        const verification = await this.sendVerificationEmail(
+          body.email.trim().toLowerCase(),
+          callbackURL,
+          frontendUrl,
+        );
+        if (!verification.ok) {
+          console.error("NEON REJECTED VERIFICATION EMAIL:", verification.data);
+          return res.status(502).json({
+            message: 'Your account was created, but the verification email could not be sent. Tap Resend verification and try again.',
+            accountCreated: true,
+          });
+        }
+        return res.status(201).json({
+          message: "Registration successful. Please check your email to verify your account.",
+          verificationEmailSent: true,
+        });
       } else {
         console.error("❌ NEON REJECTED SIGNUP:", data);
         return res.status(response.status).json({ message: data.message || "Registration failed" });
@@ -233,6 +287,32 @@ body{margin:0;background:#f6f6f0;color:#17241f;font-family:Arial,sans-serif;disp
       console.error("🚨 SIGN UP CRASH:", error); 
       return res.status(500).json({ message: "Internal server error", error: error.message });
     }
+  }
+
+  @Post('resend-verification')
+  async resendVerification(
+    @Body() body: { email: string; client?: 'mobile' | 'web' },
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    const email = body.email?.trim().toLowerCase();
+    if (!email) return res.status(400).json({ message: 'Enter your email address.' });
+    const origin = process.env.FRONTEND_URL;
+    if (!origin) return res.status(500).json({ message: 'Email verification is not configured.' });
+    const callbackURL = body.client === 'web'
+      ? (process.env.ADMIN_WEB_URL || origin)
+      : `${this.publicBaseUrl(req)}/auth/email-verified`;
+    const verification = await this.sendVerificationEmail(email, callbackURL, origin);
+    if (!verification.ok) {
+      console.error('NEON REJECTED VERIFICATION RESEND:', verification.data);
+      return res.status(verification.status).json({ message: verification.data?.message || 'Could not resend the verification email.' });
+    }
+    return res.status(200).json({ message: 'Verification email sent. Please check your inbox and spam folder.' });
+  }
+
+  @Get('email-verified')
+  emailVerified(@Res() res: Response) {
+    return res.redirect('caviteexplorer://login-callback?verified=true');
   }
 
  @Post('login')
@@ -286,6 +366,12 @@ body{margin:0;background:#f6f6f0;color:#17241f;font-family:Arial,sans-serif;disp
       }
 
       if (response.ok && data.user) {
+        if (data.user.emailVerified === false) {
+          return res.status(403).json({
+            message: 'Verify your email before signing in.',
+            requiresEmailVerification: true,
+          });
+        }
         
         // --- ADD THIS PRISMA SYNC BLOCK ---
         // This ensures the user exists in YOUR database before we give them a token
@@ -395,17 +481,18 @@ body{margin:0;background:#f6f6f0;color:#17241f;font-family:Arial,sans-serif;disp
   }
 
   @Post('forgot-password')
-  async forgotPassword(@Body() body: { email: string; client?: 'mobile' | 'web' }, @Res() res: Response) {
+  async forgotPassword(
+    @Body() body: { email: string; client?: 'mobile' | 'web' },
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
     try {
       const neonAuthUrl = process.env.NEON_AUTH_URL;
       const frontendUrl = process.env.FRONTEND_URL;
       const client = body.client === 'web' ? 'web' : 'mobile';
-      const backendUrl = client === 'web'
-        ? (process.env.WEB_BACKEND_URL || process.env.BACKEND_URL)
-        : (process.env.MOBILE_BACKEND_URL || process.env.BACKEND_URL);
       const redirectTo = client === 'web'
         ? process.env.WEB_RESET_URL
-        : (process.env.MOBILE_RESET_CALLBACK_URL || `${process.env.BACKEND_URL}/auth/reset-callback`);
+        : `${this.publicBaseUrl(req)}/auth/reset-callback?client=mobile`;
 
       if (!neonAuthUrl || !frontendUrl || !redirectTo) {
         throw new Error("CRITICAL: Missing environment variables");
@@ -424,7 +511,7 @@ body{margin:0;background:#f6f6f0;color:#17241f;font-family:Arial,sans-serif;disp
           'Origin': frontendUrl, 
         },
         body: JSON.stringify({
-          email: body.email,
+          email: body.email.trim().toLowerCase(),
           // CHANGE THIS LINE: Use 'redirectTo' instead of 'callbackURL'
           redirectTo
         }),

@@ -27,19 +27,23 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       final response = await http.post(
         ApiService.uri('/auth/forgot-password'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'email': _emailController.text.trim()}),
+        body: jsonEncode({
+          'email': _emailController.text.trim().toLowerCase(),
+          'client': 'mobile',
+        }),
       );
 
       if (response.statusCode == 200) {
         if (mounted) _showSuccessDialog();
       } else {
         final errorData = jsonDecode(response.body);
-        _showErrorSnackBar(errorData['message'] ?? 'Failed to send reset link.');
+        _showErrorSnackBar(
+            errorData['message'] ?? 'Failed to send reset link.');
       }
     } catch (e) {
-      _showErrorSnackBar('Network error. Is the backend running?');
+      _showErrorSnackBar('Network error. Please try again.');
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -49,7 +53,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       barrierDismissible: false,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text("Check Your Email", style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+        title: Text("Check Your Email",
+            style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
         content: Text(
           "We've sent a password reset link to ${_emailController.text}. Click the link to securely change your password.",
           style: GoogleFonts.poppins(),
@@ -58,9 +63,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
           TextButton(
             onPressed: () {
               // Pop the dialog AND go back to Login
-              Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+              Navigator.of(context)
+                  .pushNamedAndRemoveUntil('/login', (route) => false);
             },
-            child: Text("Back to Login", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+            child: Text("Back to Login",
+                style: GoogleFonts.poppins(
+                    fontWeight: FontWeight.bold, color: Colors.blueAccent)),
           )
         ],
       ),
@@ -69,7 +77,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
 
   void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message, style: GoogleFonts.poppins()), backgroundColor: Colors.redAccent),
+      SnackBar(
+          content: Text(message, style: GoogleFonts.poppins()),
+          backgroundColor: Colors.redAccent),
     );
   }
 
@@ -87,7 +97,8 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
         backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.black87, size: 20),
+          icon:
+              const Icon(Icons.arrow_back_ios, color: Colors.black87, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -99,12 +110,17 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
             children: [
               Text(
                 "Reset Password",
-                style: GoogleFonts.poppins(fontSize: 32, fontWeight: FontWeight.bold, color: const Color(0xFF1A1A1A), letterSpacing: -1.0),
+                style: GoogleFonts.poppins(
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF1A1A1A),
+                    letterSpacing: -1.0),
               ),
               const SizedBox(height: 8),
               Text(
                 "Enter your email and we'll send you a link to reset your password.",
-                style: GoogleFonts.poppins(fontSize: 16, color: Colors.grey[600]),
+                style:
+                    GoogleFonts.poppins(fontSize: 16, color: Colors.grey[600]),
               ),
               const SizedBox(height: 40),
 
@@ -116,9 +132,15 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 decoration: InputDecoration(
                   labelText: "Email Address",
                   labelStyle: GoogleFonts.poppins(color: Colors.grey[500]),
-                  prefixIcon: Icon(Icons.email_outlined, color: Colors.grey[400]),
-                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: Colors.grey[300]!)),
-                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: Colors.blueAccent, width: 2)),
+                  prefixIcon:
+                      Icon(Icons.email_outlined, color: Colors.grey[400]),
+                  enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide(color: Colors.grey[300]!)),
+                  focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide:
+                          const BorderSide(color: Colors.blueAccent, width: 2)),
                   filled: true,
                   fillColor: Colors.grey[50],
                 ),
@@ -133,12 +155,17 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   onPressed: _isLoading ? null : _handleReset,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF1A1A1A),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
                     elevation: 0,
                   ),
                   child: _isLoading
                       ? const CircularProgressIndicator(color: Colors.white)
-                      : Text("Send Reset Link", style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white)),
+                      : Text("Send Reset Link",
+                          style: GoogleFonts.poppins(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white)),
                 ),
               ),
             ],

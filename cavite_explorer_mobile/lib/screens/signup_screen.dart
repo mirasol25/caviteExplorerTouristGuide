@@ -15,8 +15,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _confirmPasswordController = TextEditingController(); // <-- New Controller
-  
+  final TextEditingController _confirmPasswordController =
+      TextEditingController(); // <-- New Controller
+
   bool _isLoading = false;
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true; // <-- Separate toggle for confirm field
@@ -30,8 +31,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
   Future<void> _handleSignUp() async {
     // 1. Check for empty fields
-    if (_nameController.text.trim().isEmpty || 
-        _emailController.text.trim().isEmpty || 
+    if (_nameController.text.trim().isEmpty ||
+        _emailController.text.trim().isEmpty ||
         _passwordController.text.isEmpty) {
       _showErrorSnackBar("Please fill in all fields.");
       return;
@@ -45,7 +46,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
     // 3. Check password strength
     if (!_isPasswordStrong(_passwordController.text)) {
-      _showErrorSnackBar("Please ensure your password meets all security requirements.");
+      _showErrorSnackBar(
+          "Please ensure your password meets all security requirements.");
       return;
     }
 
@@ -57,23 +59,65 @@ class _SignUpScreenState extends State<SignUpScreen> {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'name': _nameController.text.trim(),
-          'email': _emailController.text.trim(),
+          'email': _emailController.text.trim().toLowerCase(),
           'password': _passwordController.text,
+          'client': 'mobile',
         }),
       );
 
-      if (response.statusCode == 201 || response.statusCode == 200) {
+      final data = _decodeResponse(response.body);
+      if (response.statusCode == 201 ||
+          response.statusCode == 200 ||
+          data['accountCreated'] == true) {
         if (mounted) {
           _showVerificationDialog();
         }
       } else {
-        final errorData = jsonDecode(response.body);
-        _showErrorSnackBar(errorData['message'] ?? 'Registration failed');
+        _showErrorSnackBar(
+            data['message']?.toString() ?? 'Registration failed');
       }
     } catch (e) {
       _showErrorSnackBar('Network error. Please try again.');
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Map<String, dynamic> _decodeResponse(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      return decoded is Map ? Map<String, dynamic>.from(decoded) : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> _resendVerification() async {
+    try {
+      final response = await http.post(
+        ApiService.uri('/auth/resend-verification'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'email': _emailController.text.trim().toLowerCase(),
+          'client': 'mobile',
+        }),
+      );
+      final data = _decodeResponse(response.body);
+      if (!mounted) return;
+      final message = data['message']?.toString() ??
+          (response.statusCode == 200
+              ? 'Verification email sent.'
+              : 'Could not resend the verification email.');
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(message, style: GoogleFonts.poppins()),
+        backgroundColor: response.statusCode == 200
+            ? const Color(0xFF176A50)
+            : Colors.redAccent,
+      ));
+    } catch (_) {
+      if (mounted) {
+        _showErrorSnackBar('Network error while resending verification.');
+      }
     }
   }
 
@@ -83,17 +127,31 @@ class _SignUpScreenState extends State<SignUpScreen> {
       barrierDismissible: false,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text("Check Your Email", style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+        title: Text("Check Your Email",
+            style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
         content: Text(
-          "We just sent a magic link to ${_emailController.text}. Please click the link to activate your account, then log in!",
+          "We sent a verification link to ${_emailController.text.trim()}. Open it on this phone to verify your email, then sign in.",
           style: GoogleFonts.poppins(),
         ),
         actions: [
           TextButton(
+            onPressed: _resendVerification,
+            child: Text(
+              "Resend verification",
+              style: GoogleFonts.poppins(
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF176A50),
+              ),
+            ),
+          ),
+          TextButton(
             onPressed: () {
-              Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+              Navigator.of(context)
+                  .pushNamedAndRemoveUntil('/login', (route) => false);
             },
-            child: Text("Go to Login", style: GoogleFonts.poppins(fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+            child: Text("Go to Login",
+                style: GoogleFonts.poppins(
+                    fontWeight: FontWeight.bold, color: Colors.blueAccent)),
           )
         ],
       ),
@@ -102,7 +160,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
   void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message, style: GoogleFonts.poppins()), backgroundColor: Colors.redAccent),
+      SnackBar(
+          content: Text(message, style: GoogleFonts.poppins()),
+          backgroundColor: Colors.redAccent),
     );
   }
 
@@ -123,7 +183,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
         backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.black87, size: 20),
+          icon:
+              const Icon(Icons.arrow_back_ios, color: Colors.black87, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -135,46 +196,62 @@ class _SignUpScreenState extends State<SignUpScreen> {
             children: [
               Text(
                 "Create Account",
-                style: GoogleFonts.poppins(fontSize: 32, fontWeight: FontWeight.bold, color: const Color(0xFF1A1A1A), letterSpacing: -1.0),
+                style: GoogleFonts.poppins(
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF1A1A1A),
+                    letterSpacing: -1.0),
               ),
               const SizedBox(height: 8),
               Text(
                 "Join Cavite Explorer today.",
-                style: GoogleFonts.poppins(fontSize: 16, color: Colors.grey[600]),
+                style:
+                    GoogleFonts.poppins(fontSize: 16, color: Colors.grey[600]),
               ),
               const SizedBox(height: 40),
-              
+
               // --- INPUT FIELDS ---
-              _buildTextField(controller: _nameController, label: "Full Name", icon: Icons.person_outline),
+              _buildTextField(
+                  controller: _nameController,
+                  label: "Full Name",
+                  icon: Icons.person_outline),
               const SizedBox(height: 20),
-              _buildTextField(controller: _emailController, label: "Email Address", icon: Icons.email_outlined, keyboardType: TextInputType.emailAddress),
+              _buildTextField(
+                  controller: _emailController,
+                  label: "Email Address",
+                  icon: Icons.email_outlined,
+                  keyboardType: TextInputType.emailAddress),
               const SizedBox(height: 20),
-              
+
               // --- PASSWORD WITH HELPER TEXT ---
               _buildTextField(
-                controller: _passwordController, 
-                label: "Password", 
-                icon: Icons.lock_outline, 
+                controller: _passwordController,
+                label: "Password",
+                icon: Icons.lock_outline,
                 isPassword: true,
-                isPrimaryPassword: true, // Tells the builder to use the first obscure toggle
+                isPrimaryPassword:
+                    true, // Tells the builder to use the first obscure toggle
               ),
               Padding(
-                padding: const EdgeInsets.only(top: 8.0, left: 12.0, bottom: 12.0),
+                padding:
+                    const EdgeInsets.only(top: 8.0, left: 12.0, bottom: 12.0),
                 child: Text(
                   "Must be 8+ characters with 1 uppercase, 1 number, and 1 special character.",
-                  style: GoogleFonts.poppins(fontSize: 12, color: Colors.grey[500]),
+                  style: GoogleFonts.poppins(
+                      fontSize: 12, color: Colors.grey[500]),
                 ),
               ),
-              
+
               // --- CONFIRM PASSWORD ---
               _buildTextField(
-                controller: _confirmPasswordController, 
-                label: "Confirm Password", 
-                icon: Icons.lock_reset, 
+                controller: _confirmPasswordController,
+                label: "Confirm Password",
+                icon: Icons.lock_reset,
                 isPassword: true,
-                isPrimaryPassword: false, // Tells the builder to use the second obscure toggle
+                isPrimaryPassword:
+                    false, // Tells the builder to use the second obscure toggle
               ),
-              
+
               const SizedBox(height: 40),
 
               // --- SIGN UP BUTTON ---
@@ -185,12 +262,17 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   onPressed: _isLoading ? null : _handleSignUp,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF1A1A1A),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
                     elevation: 0,
                   ),
                   child: _isLoading
                       ? const CircularProgressIndicator(color: Colors.white)
-                      : Text("Sign Up", style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white)),
+                      : Text("Sign Up",
+                          style: GoogleFonts.poppins(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white)),
                 ),
               ),
             ],
@@ -200,16 +282,16 @@ class _SignUpScreenState extends State<SignUpScreen> {
     );
   }
 
-  Widget _buildTextField({
-    required TextEditingController controller, 
-    required String label, 
-    required IconData icon, 
-    bool isPassword = false, 
-    bool isPrimaryPassword = true,
-    TextInputType keyboardType = TextInputType.text
-  }) {
+  Widget _buildTextField(
+      {required TextEditingController controller,
+      required String label,
+      required IconData icon,
+      bool isPassword = false,
+      bool isPrimaryPassword = true,
+      TextInputType keyboardType = TextInputType.text}) {
     // Determine which obscure variable to use based on the field
-    bool obscureCurrent = isPrimaryPassword ? _obscurePassword : _obscureConfirmPassword;
+    bool obscureCurrent =
+        isPrimaryPassword ? _obscurePassword : _obscureConfirmPassword;
 
     return TextField(
       controller: controller,
@@ -222,7 +304,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
         prefixIcon: Icon(icon, color: Colors.grey[400]),
         suffixIcon: isPassword
             ? IconButton(
-                icon: Icon(obscureCurrent ? Icons.visibility_off : Icons.visibility, color: Colors.grey[400]),
+                icon: Icon(
+                    obscureCurrent ? Icons.visibility_off : Icons.visibility,
+                    color: Colors.grey[400]),
                 onPressed: () {
                   setState(() {
                     if (isPrimaryPassword) {
@@ -234,8 +318,12 @@ class _SignUpScreenState extends State<SignUpScreen> {
                 },
               )
             : null,
-        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: Colors.grey[300]!)),
-        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: Colors.blueAccent, width: 2)),
+        enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(color: Colors.grey[300]!)),
+        focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: const BorderSide(color: Colors.blueAccent, width: 2)),
         filled: true,
         fillColor: Colors.grey[50],
       ),

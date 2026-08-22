@@ -1,12 +1,15 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:app_links/app_links.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/map_preview_screen.dart';
+import 'screens/new_password_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/partner_dashboard_screen.dart';
 import 'screens/partner_invite_screen.dart';
@@ -56,7 +59,7 @@ class _CaviteExplorerAppState extends State<CaviteExplorerApp>
         notificationPayloads.stream.listen(_openNotificationPayload);
     VisitTrackingController.instance.unlockedBadge.addListener(_showUnlock);
     AuthService.badgeEligible.addListener(_syncBadgeSession);
-    _listenForPartnerInvites();
+    _listenForAppLinks();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final initial = await NotificationService.initialPayload();
       if (initial != null) await _openNotificationPayload(initial);
@@ -74,21 +77,94 @@ class _CaviteExplorerAppState extends State<CaviteExplorerApp>
     super.dispose();
   }
 
-  Future<void> _listenForPartnerInvites() async {
+  Future<void> _listenForAppLinks() async {
     final links = AppLinks();
     Future<void> open(Uri? uri) async {
-      if (uri == null ||
-          uri.scheme != 'caviteexplorer' ||
-          uri.host != 'accept-invite') return;
+      if (uri == null || uri.scheme != 'caviteexplorer') return;
+      await Future<void>.delayed(const Duration(milliseconds: 350));
+      final navigator = appNavigatorKey.currentState;
+      if (navigator == null) return;
+
+      if (uri.host == 'accept-invite') {
+        final token = uri.queryParameters['token'];
+        if (token == null || token.isEmpty) return;
+        await navigator.push(MaterialPageRoute(
+            builder: (_) => PartnerInviteScreen(token: token)));
+        return;
+      }
+
+      if (uri.host == 'reset-password') {
+        final error = uri.queryParameters['error'];
+        final token = uri.queryParameters['token'];
+        if (error != null || token == null || token.isEmpty) {
+          _showLinkMessage('This password reset link is invalid or expired.',
+              isError: true);
+          return;
+        }
+        await navigator.push(
+            MaterialPageRoute(builder: (_) => NewPasswordScreen(token: token)));
+        return;
+      }
+
+      if (uri.host != 'login-callback') return;
+      final error = uri.queryParameters['error'];
+      if (error != null) {
+        await navigator.pushNamedAndRemoveUntil('/login', (_) => false);
+        _showLinkMessage(
+          error == 'AccountDisabled'
+              ? 'This account has been disabled.'
+              : 'Sign in could not be completed. Please try again.',
+          isError: true,
+        );
+        return;
+      }
+      if (uri.queryParameters['verified'] == 'true') {
+        await navigator.pushNamedAndRemoveUntil('/login', (_) => false);
+        _showLinkMessage('Email verified. You can now sign in.');
+        return;
+      }
+
       final token = uri.queryParameters['token'];
       if (token == null || token.isEmpty) return;
-      await Future<void>.delayed(const Duration(milliseconds: 200));
-      appNavigatorKey.currentState?.push(
-          MaterialPageRoute(builder: (_) => PartnerInviteScreen(token: token)));
+      try {
+        final response = await http.get(
+          ApiService.uri('/auth/me'),
+          headers: {'Authorization': 'Bearer $token'},
+        );
+        if (response.statusCode != 200) {
+          _showLinkMessage('Could not finish signing in. Please try again.',
+              isError: true);
+          return;
+        }
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final user = Map<String, dynamic>.from(data['user'] as Map);
+        await AuthService.saveUser(
+          user['name']?.toString() ?? 'Explorer',
+          user['email']?.toString() ?? '',
+          token,
+          role: user['role']?.toString() ?? 'user',
+        );
+        await navigator.pushNamedAndRemoveUntil('/', (_) => false);
+      } catch (error) {
+        debugPrint('Could not process authentication link: $error');
+        _showLinkMessage('Network error while completing sign in.',
+            isError: true);
+      }
     }
 
     await open(await links.getInitialLink());
     _appLinkSubscription = links.uriLinkStream.listen(open);
+  }
+
+  void _showLinkMessage(String message, {bool isError = false}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final context = appNavigatorKey.currentContext;
+      if (context == null || !context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.redAccent : const Color(0xFF176A50),
+      ));
+    });
   }
 
   @override

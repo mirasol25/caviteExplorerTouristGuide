@@ -1,18 +1,14 @@
-import 'dart:async'; 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:app_links/app_links.dart';
-import 'dart:convert'; 
-import 'package:http/http.dart' as http; 
-
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 
 // Make sure these paths match your project structure!
 import '../services/auth_service.dart';
 import '../services/api_service.dart';
-import '../screens/signup_screen.dart'; 
+import '../screens/signup_screen.dart';
 import '../screens/forgot_password_screen.dart';
-import '../screens/new_password_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -27,89 +23,9 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
   bool _obscurePassword = true;
 
-  // --- DEEP LINK VARIABLES ---
-  late AppLinks _appLinks;
-  StreamSubscription<Uri>? _linkSubscription;
-
-  @override
-  void initState() {
-    super.initState();
-    _initDeepLinks(); // Listen for Google OAuth redirect
-  }
-
-  // --- 1. GOOGLE LOGIN HANDLER (DEEP LINKS) ---
-  void _initDeepLinks() {
-    _appLinks = AppLinks();
-    _linkSubscription = _appLinks.uriLinkStream.listen((uri) async {
-      
-      // --- 1. HANDLE GOOGLE LOGIN CALLBACK ---
-      if (uri.scheme == 'caviteexplorer' && uri.host == 'login-callback') {
-        
-        final error = uri.queryParameters['error'];
-        if (error != null) {
-          print("Login canceled or failed: $error");
-          return; 
-        }
-
-        final token = uri.queryParameters['token'];
-
-        if (token != null && token.isNotEmpty) {
-          try {
-            // Trade token for profile data from NestJS
-            final response = await http.get(
-              ApiService.uri('/auth/me'),
-              headers: {
-                'Authorization': 'Bearer $token', 
-              },
-            );
-
-            if (response.statusCode == 200) {
-              final data = jsonDecode(response.body);
-              final name = data['user']['name'] ?? 'Explorer';
-              final email = data['user']['email'] ?? '';
-              final role = data['user']['role'] ?? 'user';
-
-              // Save session and navigate to Home
-              await AuthService.saveUser(name, email, token, role: role);
-              if (mounted) {
-                Navigator.of(context).pushNamedAndRemoveUntil('/', (route) => false);
-              }
-            } else {
-              print("Failed to fetch profile: ${response.statusCode}");
-            }
-          } catch (e) {
-            print("Network error fetching profile: $e");
-          }
-        }
-      } 
-      // --- 2. HANDLE PASSWORD RESET CALLBACK (NEW!) ---
-      else if (uri.scheme == 'caviteexplorer' && uri.host == 'reset-password') {
-        
-        final error = uri.queryParameters['error'];
-        if (error != null) {
-          _showErrorSnackBar("Invalid or expired reset link.");
-          return;
-        }
-
-        final token = uri.queryParameters['token'];
-        
-        if (token != null && token.isNotEmpty) {
-          // Send the user to the New Password screen, carrying the token with them!
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => NewPasswordScreen(token: token),
-            ),
-          );
-        }
-      }
-      
-    });
-  }
-
   Future<void> _handleGoogleLogin() async {
     final Uri backendUrl = ApiService.uri('/auth/google?client=mobile');
-    
+
     try {
       if (!await launchUrl(backendUrl, mode: LaunchMode.externalApplication)) {
         throw Exception('Could not launch backend auth url');
@@ -121,7 +37,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
   // --- 2. MANUAL EMAIL LOGIN HANDLER ---
   Future<void> _handleEmailLogin() async {
-    if (_emailController.text.trim().isEmpty || _passwordController.text.isEmpty) {
+    if (_emailController.text.trim().isEmpty ||
+        _passwordController.text.isEmpty) {
       _showErrorSnackBar("Please enter your email and password.");
       return;
     }
@@ -152,7 +69,15 @@ class _LoginScreenState extends State<LoginScreen> {
         }
       } else {
         final errorData = jsonDecode(response.body);
-        _showErrorSnackBar(errorData['message'] ?? 'Login failed. Please check your credentials.');
+        if (errorData['requiresEmailVerification'] == true) {
+          _showVerificationSnackBar(
+            errorData['message']?.toString() ??
+                'Verify your email before signing in.',
+          );
+        } else {
+          _showErrorSnackBar(errorData['message'] ??
+              'Login failed. Please check your credentials.');
+        }
       }
     } catch (e) {
       _showErrorSnackBar('Network error. Is the backend running?');
@@ -164,13 +89,57 @@ class _LoginScreenState extends State<LoginScreen> {
   // --- UTILS ---
   void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message, style: GoogleFonts.poppins()), backgroundColor: Colors.redAccent),
+      SnackBar(
+          content: Text(message, style: GoogleFonts.poppins()),
+          backgroundColor: Colors.redAccent),
     );
+  }
+
+  void _showVerificationSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(message, style: GoogleFonts.poppins()),
+      backgroundColor: const Color(0xFF176A50),
+      duration: const Duration(seconds: 8),
+      action: SnackBarAction(
+        label: 'RESEND',
+        textColor: Colors.white,
+        onPressed: _resendVerification,
+      ),
+    ));
+  }
+
+  Future<void> _resendVerification() async {
+    final email = _emailController.text.trim().toLowerCase();
+    if (email.isEmpty) {
+      _showErrorSnackBar('Enter your email address first.');
+      return;
+    }
+    try {
+      final response = await http.post(
+        ApiService.uri('/auth/resend-verification'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'email': email, 'client': 'mobile'}),
+      );
+      final data = jsonDecode(response.body);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(
+          data['message']?.toString() ?? 'Verification email sent.',
+          style: GoogleFonts.poppins(),
+        ),
+        backgroundColor: response.statusCode == 200
+            ? const Color(0xFF176A50)
+            : Colors.redAccent,
+      ));
+    } catch (_) {
+      if (mounted) {
+        _showErrorSnackBar('Could not resend verification. Please try again.');
+      }
+    }
   }
 
   @override
   void dispose() {
-    _linkSubscription?.cancel(); 
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
@@ -185,7 +154,8 @@ class _LoginScreenState extends State<LoginScreen> {
         backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.black87, size: 20),
+          icon:
+              const Icon(Icons.arrow_back_ios, color: Colors.black87, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -218,9 +188,10 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 8),
               Text(
                 "Sign in to continue exploring Cavite.",
-                style: GoogleFonts.poppins(fontSize: 16, color: Colors.grey[600]),
+                style:
+                    GoogleFonts.poppins(fontSize: 16, color: Colors.grey[600]),
               ),
-              
+
               const SizedBox(height: 50),
 
               // --- INPUT FIELDS ---
@@ -247,12 +218,14 @@ class _LoginScreenState extends State<LoginScreen> {
                     // Slide the Forgot Password screen into view!
                     Navigator.push(
                       context,
-                      MaterialPageRoute(builder: (context) => const ForgotPasswordScreen()),
+                      MaterialPageRoute(
+                          builder: (context) => const ForgotPasswordScreen()),
                     );
                   },
                   child: Text(
                     "Forgot Password?",
-                    style: GoogleFonts.poppins(color: Colors.blueAccent, fontWeight: FontWeight.w600),
+                    style: GoogleFonts.poppins(
+                        color: Colors.blueAccent, fontWeight: FontWeight.w600),
                   ),
                 ),
               ),
@@ -267,27 +240,33 @@ class _LoginScreenState extends State<LoginScreen> {
                   onPressed: _isLoading ? null : _handleEmailLogin, // Wired up!
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF1A1A1A),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
                     elevation: 0,
                   ),
                   child: _isLoading
                       ? const CircularProgressIndicator(color: Colors.white)
                       : Text(
                           "Sign In",
-                          style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
+                          style: GoogleFonts.poppins(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white),
                         ),
                 ),
               ),
 
               const SizedBox(height: 40),
-              
+
               // --- DIVIDER ---
               Row(
                 children: [
                   Expanded(child: Divider(color: Colors.grey[300])),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Text("OR", style: GoogleFonts.poppins(color: Colors.grey[500], fontSize: 12)),
+                    child: Text("OR",
+                        style: GoogleFonts.poppins(
+                            color: Colors.grey[500], fontSize: 12)),
                   ),
                   Expanded(child: Divider(color: Colors.grey[300])),
                 ],
@@ -306,31 +285,39 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   label: Text(
                     "Continue with Google",
-                    style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600, color: const Color(0xFF1A1A1A)),
+                    style: GoogleFonts.poppins(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF1A1A1A)),
                   ),
                   style: OutlinedButton.styleFrom(
                     side: BorderSide(color: Colors.grey[300]!),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
                   ),
                 ),
               ),
               const SizedBox(height: 40),
-              
+
               // --- SIGN UP LINK ---
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text("Don't have an account? ", style: GoogleFonts.poppins(color: Colors.grey[600])),
+                  Text("Don't have an account? ",
+                      style: GoogleFonts.poppins(color: Colors.grey[600])),
                   GestureDetector(
                     onTap: () {
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => const SignUpScreen()),
+                        MaterialPageRoute(
+                            builder: (context) => const SignUpScreen()),
                       );
                     },
                     child: Text(
                       "Sign Up",
-                      style: GoogleFonts.poppins(color: Colors.blueAccent, fontWeight: FontWeight.bold),
+                      style: GoogleFonts.poppins(
+                          color: Colors.blueAccent,
+                          fontWeight: FontWeight.bold),
                     ),
                   ),
                 ],
@@ -380,6 +367,6 @@ class _LoginScreenState extends State<LoginScreen> {
         filled: true,
         fillColor: Colors.grey[50],
       ),
-    ); 
+    );
   }
 }
