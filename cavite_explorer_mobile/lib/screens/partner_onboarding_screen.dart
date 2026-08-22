@@ -564,12 +564,17 @@ class _PartnerOnboardingScreenState extends State<PartnerOnboardingScreen> {
             child: _logoPath.isEmpty
                 ? const Icon(Icons.storefront_rounded,
                     color: Color(0xFF176A50), size: 34)
-                : Image.network(
-                    ApiService.assetUrl(_logoPath),
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => const Icon(
-                        Icons.broken_image_outlined,
-                        color: Color(0xFF176A50)),
+                : Padding(
+                    padding: const EdgeInsets.all(2),
+                    child: ClipOval(
+                      child: Image.network(
+                        ApiService.assetUrl(_logoPath),
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => const Icon(
+                            Icons.broken_image_outlined,
+                            color: Color(0xFF176A50)),
+                      ),
+                    ),
                   ),
           ),
           const SizedBox(width: 14),

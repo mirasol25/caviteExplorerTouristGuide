@@ -372,14 +372,21 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
                                                   ?.toString()
                                                   .isNotEmpty ==
                                               true
-                                          ? Image.network(
-                                              ApiService.assetUrl(
-                                                  business['image']),
-                                              fit: BoxFit.cover,
-                                              errorBuilder: (_, __, ___) =>
-                                                  const Icon(
-                                                      Icons.storefront_rounded,
-                                                      color: Color(0xFF176A50)),
+                                          ? Padding(
+                                              padding: const EdgeInsets.all(2),
+                                              child: ClipOval(
+                                                child: Image.network(
+                                                  ApiService.assetUrl(
+                                                      business['image']),
+                                                  fit: BoxFit.contain,
+                                                  errorBuilder: (_, __, ___) =>
+                                                      const Icon(
+                                                          Icons
+                                                              .storefront_rounded,
+                                                          color: Color(
+                                                              0xFF176A50)),
+                                                ),
+                                              ),
                                             )
                                           : const Icon(Icons.storefront_rounded,
                                               color: Color(0xFF176A50),

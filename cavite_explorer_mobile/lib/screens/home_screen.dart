@@ -87,6 +87,14 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _refreshHome() async {
+    await Future.wait([
+      _fetchUser(),
+      _triggerSmartLocation(),
+      _fetchLandmarks(),
+    ]);
+  }
+
   // --- NEW: SEARCH & FILTER LOGIC ---
   List<dynamic> get _filteredLandmarks {
     return _allLandmarks.where((place) {
@@ -246,59 +254,64 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: CircularProgressIndicator(color: Colors.black87))
             : Stack(
                 children: [
-                  SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(18, 0, 18, 150),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: 14),
-                        _buildHeader(context),
-                        const SizedBox(height: 20),
-                        _buildSearchBar(),
-                        const SizedBox(height: 28),
+                  RefreshIndicator(
+                    color: const Color(0xFF176A50),
+                    onRefresh: _refreshHome,
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(18, 0, 18, 150),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 14),
+                          _buildHeader(context),
+                          const SizedBox(height: 20),
+                          _buildSearchBar(),
+                          const SizedBox(height: 28),
 
-                        // --- DYNAMIC UI SWITCH ---
-                        if (isSearchingOrFiltering) ...[
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text("Search Results",
-                                  style: GoogleFonts.poppins(
-                                      fontSize: 22,
-                                      fontWeight: FontWeight.w800,
-                                      color: const Color(0xFF1A1A1A))),
-                              Text("${_filteredLandmarks.length} found",
-                                  style: GoogleFonts.poppins(
-                                      fontSize: 14,
-                                      color: Colors.grey[600],
-                                      fontWeight: FontWeight.w500)),
-                            ],
-                          ),
-                          const SizedBox(height: 15),
-                          _buildGridList(_filteredLandmarks),
-                        ] else ...[
-                          // Default Standard UI
-                          _sectionHeader("Popular Destinations", "See all"),
-                          const SizedBox(height: 15),
-                          _buildPopularList(popularItems.isEmpty
-                              ? _allLandmarks
-                              : popularItems),
+                          // --- DYNAMIC UI SWITCH ---
+                          if (isSearchingOrFiltering) ...[
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text("Search Results",
+                                    style: GoogleFonts.poppins(
+                                        fontSize: 22,
+                                        fontWeight: FontWeight.w800,
+                                        color: const Color(0xFF1A1A1A))),
+                                Text("${_filteredLandmarks.length} found",
+                                    style: GoogleFonts.poppins(
+                                        fontSize: 14,
+                                        color: Colors.grey[600],
+                                        fontWeight: FontWeight.w500)),
+                              ],
+                            ),
+                            const SizedBox(height: 15),
+                            _buildGridList(_filteredLandmarks),
+                          ] else ...[
+                            // Default Standard UI
+                            _sectionHeader("Popular Destinations", "See all"),
+                            const SizedBox(height: 15),
+                            _buildPopularList(popularItems.isEmpty
+                                ? _allLandmarks
+                                : popularItems),
 
-                          const SizedBox(height: 30),
-                          _sectionHeader("Top Rated Places", "View map"),
-                          const SizedBox(height: 13),
-                          _buildRankedList(topRatedItems.take(10).toList()),
+                            const SizedBox(height: 30),
+                            _sectionHeader("Top Rated Places", "View map"),
+                            const SizedBox(height: 13),
+                            _buildRankedList(topRatedItems.take(10).toList()),
 
-                          const SizedBox(height: 32),
-                          _sectionHeader(
-                              _currentPosition != null
-                                  ? "Nearest to You"
-                                  : "Recommended for You",
-                              "Explore"),
-                          const SizedBox(height: 15),
-                          _buildGridList(recommendedItems),
-                        ]
-                      ],
+                            const SizedBox(height: 32),
+                            _sectionHeader(
+                                _currentPosition != null
+                                    ? "Nearest to You"
+                                    : "Recommended for You",
+                                "Explore"),
+                            const SizedBox(height: 15),
+                            _buildGridList(recommendedItems),
+                          ]
+                        ],
+                      ),
                     ),
                   ),
                   Align(
