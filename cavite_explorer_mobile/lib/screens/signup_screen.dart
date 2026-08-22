@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../services/api_service.dart';
+import 'email_verification_screen.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -70,7 +71,11 @@ class _SignUpScreenState extends State<SignUpScreen> {
           response.statusCode == 200 ||
           data['accountCreated'] == true) {
         if (mounted) {
-          _showVerificationDialog();
+          Navigator.of(context).pushReplacement(MaterialPageRoute(
+            builder: (_) => EmailVerificationScreen(
+              email: _emailController.text.trim().toLowerCase(),
+            ),
+          ));
         }
       } else {
         _showErrorSnackBar(
@@ -90,72 +95,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
     } catch (_) {
       return {};
     }
-  }
-
-  Future<void> _resendVerification() async {
-    try {
-      final response = await http.post(
-        ApiService.uri('/auth/resend-verification'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'email': _emailController.text.trim().toLowerCase(),
-          'client': 'mobile',
-        }),
-      );
-      final data = _decodeResponse(response.body);
-      if (!mounted) return;
-      final message = data['message']?.toString() ??
-          (response.statusCode == 200
-              ? 'Verification email sent.'
-              : 'Could not resend the verification email.');
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(message, style: GoogleFonts.poppins()),
-        backgroundColor: response.statusCode == 200
-            ? const Color(0xFF176A50)
-            : Colors.redAccent,
-      ));
-    } catch (_) {
-      if (mounted) {
-        _showErrorSnackBar('Network error while resending verification.');
-      }
-    }
-  }
-
-  void _showVerificationDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text("Check Your Email",
-            style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-        content: Text(
-          "We sent a verification link to ${_emailController.text.trim()}. Open it on this phone to verify your email, then sign in.",
-          style: GoogleFonts.poppins(),
-        ),
-        actions: [
-          TextButton(
-            onPressed: _resendVerification,
-            child: Text(
-              "Resend verification",
-              style: GoogleFonts.poppins(
-                fontWeight: FontWeight.w600,
-                color: const Color(0xFF176A50),
-              ),
-            ),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.of(context)
-                  .pushNamedAndRemoveUntil('/login', (route) => false);
-            },
-            child: Text("Go to Login",
-                style: GoogleFonts.poppins(
-                    fontWeight: FontWeight.bold, color: Colors.blueAccent)),
-          )
-        ],
-      ),
-    );
   }
 
   void _showErrorSnackBar(String message) {

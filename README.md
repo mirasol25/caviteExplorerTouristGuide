@@ -81,7 +81,8 @@ Admin web portal --------------+--> NestJS REST API on Render
                                       |       +----------> Cloudinary image storage
                                       +------------------> Neon PostgreSQL + Neon Auth
 
-Brevo API <--------------------------- invitation and password email delivery
+Brevo API <--------------------------- admin/editor/partner invitation delivery
+Neon shared email <------------------- mobile verification and password-reset codes
 OpenStreetMap / Leaflet <------------- map tiles, search, and route visualization
 ```
 
@@ -115,7 +116,7 @@ The commute engine treats administrator-verified transport data as the source of
 - PostgreSQL database (Neon is currently used)
 - Neon Auth project
 - Cloudinary account for persistent image storage
-- Brevo API key and verified sender for invitation/reset emails
+- Brevo API key and verified sender for invitation emails
 - Groq API key for assisted route-language generation
 
 No Google Maps billing account is required. The map experience uses OpenStreetMap data and tiles. Review the OpenStreetMap tile usage policy before operating at substantial public scale.
@@ -157,7 +158,7 @@ Required backend environment variables:
 | `CLOUDINARY_URL` | Persistent image upload credentials |
 | `GROQ_API_KEY` | Assisted commute-language generation |
 | `GROQ_MODEL` | Accessible Groq model, currently `openai/gpt-oss-120b` |
-| `BREVO_API_KEY` | Transactional invitation/reset email delivery |
+| `BREVO_API_KEY` | Transactional admin/editor/partner invitation delivery |
 | `BREVO_SENDER_EMAIL` | Verified Brevo sender address |
 | `ADMIN_WEB_URL` | Admin portal origin and callback destination |
 | `CORS_ORIGINS` | Comma-separated allowed browser origins |
@@ -260,7 +261,8 @@ Its public origin must also appear in the backend's `ADMIN_WEB_URL`, `FRONTEND_U
 
 - Web callbacks must use the deployed admin HTTPS domain.
 - Mobile partner invitations use the `caviteexplorer://accept-invite` deep link through the configured invite bridge.
-- Mobile password resets use `caviteexplorer://reset-password`.
+- Mobile signup verification uses a six-digit Neon email OTP.
+- Mobile password resets use a six-digit Neon email OTP; the legacy reset deep link remains available for web/link compatibility.
 - Add only valid callback domains to Neon Auth's trusted-domain settings.
 
 ## Data and reward rules

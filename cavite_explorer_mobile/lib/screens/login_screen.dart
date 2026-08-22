@@ -9,6 +9,7 @@ import '../services/auth_service.dart';
 import '../services/api_service.dart';
 import '../screens/signup_screen.dart';
 import '../screens/forgot_password_screen.dart';
+import '../screens/email_verification_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -101,41 +102,22 @@ class _LoginScreenState extends State<LoginScreen> {
       backgroundColor: const Color(0xFF176A50),
       duration: const Duration(seconds: 8),
       action: SnackBarAction(
-        label: 'RESEND',
+        label: 'ENTER CODE',
         textColor: Colors.white,
-        onPressed: _resendVerification,
+        onPressed: _openVerification,
       ),
     ));
   }
 
-  Future<void> _resendVerification() async {
+  void _openVerification() {
     final email = _emailController.text.trim().toLowerCase();
     if (email.isEmpty) {
       _showErrorSnackBar('Enter your email address first.');
       return;
     }
-    try {
-      final response = await http.post(
-        ApiService.uri('/auth/resend-verification'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'email': email, 'client': 'mobile'}),
-      );
-      final data = jsonDecode(response.body);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(
-          data['message']?.toString() ?? 'Verification email sent.',
-          style: GoogleFonts.poppins(),
-        ),
-        backgroundColor: response.statusCode == 200
-            ? const Color(0xFF176A50)
-            : Colors.redAccent,
-      ));
-    } catch (_) {
-      if (mounted) {
-        _showErrorSnackBar('Could not resend verification. Please try again.');
-      }
-    }
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => EmailVerificationScreen(email: email),
+    ));
   }
 
   @override

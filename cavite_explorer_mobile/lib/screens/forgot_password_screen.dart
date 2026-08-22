@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../services/api_service.dart';
+import 'reset_password_code_screen.dart';
 
 class ForgotPasswordScreen extends StatefulWidget {
   const ForgotPasswordScreen({super.key});
@@ -34,45 +35,23 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       );
 
       if (response.statusCode == 200) {
-        if (mounted) _showSuccessDialog();
+        if (mounted) {
+          Navigator.of(context).pushReplacement(MaterialPageRoute(
+            builder: (_) => ResetPasswordCodeScreen(
+              email: _emailController.text.trim().toLowerCase(),
+            ),
+          ));
+        }
       } else {
         final errorData = jsonDecode(response.body);
         _showErrorSnackBar(
-            errorData['message'] ?? 'Failed to send reset link.');
+            errorData['message'] ?? 'Failed to send reset code.');
       }
     } catch (e) {
       _showErrorSnackBar('Network error. Please try again.');
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
-  }
-
-  void _showSuccessDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text("Check Your Email",
-            style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
-        content: Text(
-          "We've sent a password reset link to ${_emailController.text}. Click the link to securely change your password.",
-          style: GoogleFonts.poppins(),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              // Pop the dialog AND go back to Login
-              Navigator.of(context)
-                  .pushNamedAndRemoveUntil('/login', (route) => false);
-            },
-            child: Text("Back to Login",
-                style: GoogleFonts.poppins(
-                    fontWeight: FontWeight.bold, color: Colors.blueAccent)),
-          )
-        ],
-      ),
-    );
   }
 
   void _showErrorSnackBar(String message) {
@@ -118,7 +97,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                "Enter your email and we'll send you a link to reset your password.",
+                "Enter your email and we'll send you a 6-digit reset code.",
                 style:
                     GoogleFonts.poppins(fontSize: 16, color: Colors.grey[600]),
               ),
@@ -161,7 +140,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   ),
                   child: _isLoading
                       ? const CircularProgressIndicator(color: Colors.white)
-                      : Text("Send Reset Link",
+                      : Text("Send Reset Code",
                           style: GoogleFonts.poppins(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,

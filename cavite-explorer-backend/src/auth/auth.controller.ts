@@ -83,6 +83,32 @@ export class AuthController {
     };
   }
 
+  private async neonOtpRequest(path: string, body: Record<string, unknown>) {
+    const neonAuthUrl = process.env.NEON_AUTH_URL;
+    const origin = process.env.FRONTEND_URL;
+    if (!neonAuthUrl || !origin) throw new Error('Neon Auth OTP configuration is incomplete');
+    const response = await fetch(neonAuthUrl.replace('/sign-in/social', path), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: origin,
+        Referer: `${origin.replace(/\/$/, '')}/`,
+      },
+      body: JSON.stringify(body),
+    });
+    const raw = await response.text();
+    let data: any = {};
+    try { data = raw ? JSON.parse(raw) : {}; } catch {}
+    return {
+      ok: response.ok,
+      status: response.status,
+      statusText: response.statusText,
+      requestId: response.headers.get('x-neon-ret-request-id') || response.headers.get('x-trace-id'),
+      data,
+      raw,
+    };
+  }
+
   @Get('partner-invite')
   openPartnerInvite(@Query('token') token: string, @Res() res: Response) {
     if (!token) return res.status(400).send('This invitation link is missing its token.');
@@ -249,6 +275,15 @@ body{margin:0;background:#f6f6f0;color:#17241f;font-family:Arial,sans-serif;disp
       console.log("Attempting to register user at:", neonSignupUrl);
 
       // 2. Add the missing headers and callbackURL!
+      const signUpBody: Record<string, unknown> = {
+        email: body.email.trim().toLowerCase(),
+        password: body.password,
+        name: body.name,
+      };
+      // Mobile verification is OTP-based. A callback URL asks Neon to create a
+      // link, so only the web flow should send one.
+      if (body.client === 'web') signUpBody.callbackURL = callbackURL;
+
       const response = await fetch(neonSignupUrl, {
         method: 'POST',
         headers: { 
@@ -256,17 +291,20 @@ body{margin:0;background:#f6f6f0;color:#17241f;font-family:Arial,sans-serif;disp
           'Origin': frontendUrl,       // <-- FIX: Tells Neon who we are
           'Referer': `${frontendUrl}/` // <-- FIX: Security requirement
         },
-        body: JSON.stringify({
-          email: body.email.trim().toLowerCase(),
-          password: body.password,
-          name: body.name,
-          callbackURL,
-        }),
+        body: JSON.stringify(signUpBody),
       });
 
       const responseText = await response.text();
       let data: any = {};
       try { data = responseText ? JSON.parse(responseText) : {}; } catch {}
+
+      if (response.ok && body.client !== 'web') {
+        return res.status(201).json({
+          message: 'Registration successful. Enter the verification code sent to your email.',
+          verificationCodeSent: true,
+          email: body.email.trim().toLowerCase(),
+        });
+      }
 
       if (response.ok) {
         const verification = await this.sendVerificationEmail(
@@ -310,6 +348,19 @@ body{margin:0;background:#f6f6f0;color:#17241f;font-family:Arial,sans-serif;disp
   ) {
     const email = body.email?.trim().toLowerCase();
     if (!email) return res.status(400).json({ message: 'Enter your email address.' });
+    if (body.client !== 'web') {
+      const verification = await this.neonOtpRequest('/email-otp/send-verification-otp', {
+        email,
+        type: 'email-verification',
+      });
+      if (!verification.ok) {
+        console.error('NEON REJECTED VERIFICATION CODE RESEND:', verification);
+        return res.status(verification.status).json({
+          message: verification.data?.message || 'Could not resend the verification code.',
+        });
+      }
+      return res.status(200).json({ message: 'A new verification code was sent.' });
+    }
     const origin = process.env.FRONTEND_URL;
     if (!origin) return res.status(500).json({ message: 'Email verification is not configured.' });
     const callbackURL = body.client === 'web'
@@ -327,6 +378,24 @@ body{margin:0;background:#f6f6f0;color:#17241f;font-family:Arial,sans-serif;disp
       return res.status(verification.status).json({ message: verification.data?.message || 'Could not resend the verification email.' });
     }
     return res.status(200).json({ message: 'Verification email sent. Please check your inbox and spam folder.' });
+  }
+
+  @Post('verify-email-code')
+  async verifyEmailCode(
+    @Body() body: { email: string; code: string },
+    @Res() res: Response,
+  ) {
+    const email = body.email?.trim().toLowerCase();
+    const otp = body.code?.replace(/\s/g, '');
+    if (!email || !otp) return res.status(400).json({ message: 'Email and verification code are required.' });
+    const verification = await this.neonOtpRequest('/email-otp/verify-email', { email, otp });
+    if (!verification.ok) {
+      console.error('NEON REJECTED EMAIL VERIFICATION CODE:', verification);
+      return res.status(verification.status).json({
+        message: verification.data?.message || 'The verification code is invalid or expired.',
+      });
+    }
+    return res.status(200).json({ message: 'Email verified successfully. You can now sign in.' });
   }
 
   @Get('email-verified')
@@ -509,6 +578,22 @@ body{margin:0;background:#f6f6f0;color:#17241f;font-family:Arial,sans-serif;disp
       const neonAuthUrl = process.env.NEON_AUTH_URL;
       const frontendUrl = process.env.FRONTEND_URL;
       const client = body.client === 'web' ? 'web' : 'mobile';
+      const email = body.email?.trim().toLowerCase();
+      if (!email) return res.status(400).json({ message: 'Enter your email address.' });
+
+      if (client === 'mobile') {
+        const reset = await this.neonOtpRequest('/email-otp/request-password-reset', { email });
+        if (!reset.ok) {
+          console.error('NEON REJECTED PASSWORD RESET CODE:', reset);
+          return res.status(reset.status).json({
+            message: reset.data?.message || 'Could not send the password reset code.',
+          });
+        }
+        return res.status(200).json({
+          message: 'A password reset code was sent to your email.',
+          resetCodeSent: true,
+        });
+      }
       const redirectTo = client === 'web'
         ? process.env.WEB_RESET_URL
         : `${this.publicBaseUrl(req)}/auth/reset-callback?client=mobile`;
@@ -559,6 +644,30 @@ body{margin:0;background:#f6f6f0;color:#17241f;font-family:Arial,sans-serif;disp
       console.error("🚨 RESET CRASH:", error); 
       return res.status(500).json({ message: "Internal server error" });
     }
+  }
+
+  @Post('reset-password-code')
+  async resetPasswordCode(
+    @Body() body: { email: string; code: string; newPassword: string },
+    @Res() res: Response,
+  ) {
+    const email = body.email?.trim().toLowerCase();
+    const otp = body.code?.replace(/\s/g, '');
+    if (!email || !otp || !body.newPassword) {
+      return res.status(400).json({ message: 'Email, reset code, and new password are required.' });
+    }
+    const reset = await this.neonOtpRequest('/email-otp/reset-password', {
+      email,
+      otp,
+      password: body.newPassword,
+    });
+    if (!reset.ok) {
+      console.error('NEON REJECTED PASSWORD RESET CODE CONFIRMATION:', reset);
+      return res.status(reset.status).json({
+        message: reset.data?.message || 'The reset code is invalid or expired.',
+      });
+    }
+    return res.status(200).json({ message: 'Password updated successfully. You can now sign in.' });
   }
 
   @Get('reset-callback')
