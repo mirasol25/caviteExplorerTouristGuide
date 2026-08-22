@@ -8,8 +8,10 @@ class ApiService {
   static Uri uri(String path) => Uri.parse('$baseUrl$path');
 
   static String assetUrl(dynamic value) {
-    final path = (value ?? '').toString();
+    var path = (value ?? '').toString().trim();
     if (path.startsWith('http://') || path.startsWith('https://')) return path;
+    final parsed = Uri.tryParse(path);
+    if (parsed?.scheme == 'file') path = parsed!.path;
     return '$baseUrl${path.startsWith('/') ? '' : '/'}$path';
   }
 

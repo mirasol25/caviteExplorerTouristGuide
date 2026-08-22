@@ -7,6 +7,7 @@ import { TripsModule } from './trips/trips.module';
 import { AssistantModule } from './assistant/assistant.module';
 import { AdminModule } from './admin/admin.module';
 import { TransportModule } from './transport/transport.module';
+import { BadgesModule } from './badges/badges.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { TransportModule } from './transport/transport.module';
     AssistantModule,
     AdminModule,
     TransportModule,
+    BadgesModule,
   ],
   controllers: [],
   providers: [PrismaService],

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -16,15 +17,25 @@ class PlaceDetailsScreen extends StatefulWidget {
   State<PlaceDetailsScreen> createState() => _PlaceDetailsScreenState();
 }
 
-class _PlaceDetailsScreenState extends State<PlaceDetailsScreen> {
+class _PlaceDetailsScreenState extends State<PlaceDetailsScreen>
+    with SingleTickerProviderStateMixin {
   int _currentImageIndex = 0;
   int _detailSection = 0;
   final PageController _imagePageController = PageController();
   Timer? _imageSlider;
+  AnimationController? _badgePulse;
+
+  void _ensureBadgePulse() {
+    _badgePulse ??= AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1700),
+    )..repeat(reverse: true);
+  }
 
   @override
   void initState() {
     super.initState();
+    _ensureBadgePulse();
     final images = widget.place['images'] is List
         ? List<dynamic>.from(widget.place['images'] as List)
         : <dynamic>[];
@@ -45,7 +56,14 @@ class _PlaceDetailsScreenState extends State<PlaceDetailsScreen> {
   void dispose() {
     _imageSlider?.cancel();
     _imagePageController.dispose();
+    _badgePulse?.dispose();
     super.dispose();
+  }
+
+  @override
+  void reassemble() {
+    super.reassemble();
+    _ensureBadgePulse();
   }
 
   @override
@@ -115,6 +133,16 @@ class _PlaceDetailsScreenState extends State<PlaceDetailsScreen> {
       if (_text(widget.place['visitorTips']).isNotEmpty)
         MapEntry('Visitor tips', _text(widget.place['visitorTips'])),
     ];
+    final String badgeName = _text(widget.place['badgeName']).isNotEmpty
+        ? _text(widget.place['badgeName'])
+        : '$name Explorer';
+    final String badgeDescription =
+        _text(widget.place['badgeDescription']).isNotEmpty
+            ? _text(widget.place['badgeDescription'])
+            : 'Complete a verified visit to $name to unlock this badge.';
+    final int badgeMinutes =
+        (widget.place['badgeRequiredMinutes'] as num?)?.round() ?? 30;
+    final Color badgeColor = _badgeColor(widget.place['badgeColor']);
 
     final List<dynamic> images = widget.place['images'] != null
         ? List<dynamic>.from(widget.place['images'])
@@ -164,7 +192,15 @@ class _PlaceDetailsScreenState extends State<PlaceDetailsScreen> {
                         ApiService.assetUrl(
                             images.isEmpty ? fallbackImage : images[index]),
                         fit: BoxFit.cover,
-                        width: double.infinity);
+                        width: double.infinity,
+                        cacheWidth: 1200,
+                        filterQuality: FilterQuality.medium,
+                        errorBuilder: (_, __, ___) => Container(
+                              color: const Color(0xFFE8EEE9),
+                              alignment: Alignment.center,
+                              child: const Icon(Icons.image_not_supported_outlined,
+                                  size: 38, color: Color(0xFF809087)),
+                            ));
                   },
                 ),
                 if (images.length > 1)
@@ -290,6 +326,15 @@ class _PlaceDetailsScreenState extends State<PlaceDetailsScreen> {
                                 fontSize: 14,
                                 color: Colors.grey[700],
                                 height: 1.58)),
+                        const SizedBox(height: 22),
+                        _buildLandmarkBadge(
+                          name: badgeName,
+                          description: badgeDescription,
+                          iconName: _text(widget.place['badgeIcon']),
+                          imagePath: _text(widget.place['badgeImage']),
+                          color: badgeColor,
+                          requiredMinutes: badgeMinutes,
+                        ),
                       ],
                       if (_detailSection == 1 && visitorInformation.isNotEmpty)
                         _buildVisitSection(visitorInformation),
@@ -309,19 +354,10 @@ class _PlaceDetailsScreenState extends State<PlaceDetailsScreen> {
                       if (_detailSection == 3 && reminders.isNotEmpty)
                         _buildInformationSection('Before you go',
                             Icons.info_outline_rounded, reminders),
-                      const SizedBox(height: 32),
-                      Text("Learn more about $name",
-                          style: GoogleFonts.poppins(
-                              fontSize: 14,
-                              color: Colors.black87,
-                              fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 12),
-                      _buildMinigameCard(
-                          name, images.isNotEmpty ? images[0] : fallbackImage),
-                      const SizedBox(height: 32),
+                      const SizedBox(height: 26),
                       SizedBox(
                         width: double.infinity,
-                        height: 56,
+                        height: 58,
                         child: ElevatedButton.icon(
                           onPressed: () {
                             Navigator.push(
@@ -334,18 +370,20 @@ class _PlaceDetailsScreenState extends State<PlaceDetailsScreen> {
                               ),
                             );
                           },
-                          icon: const Icon(Icons.map_outlined,
+                          icon: const Icon(Icons.explore_outlined,
                               color: Colors.white),
-                          label: Text("View on map",
+                          label: Text("Explore this landmark",
                               style: GoogleFonts.poppins(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
                                   color: Colors.white)),
                           style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blueAccent,
+                              backgroundColor: const Color(0xFF176A50),
                               shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16)),
-                              elevation: 0),
+                                  borderRadius: BorderRadius.circular(18)),
+                              shadowColor:
+                                  const Color(0xFF176A50).withOpacity(.28),
+                              elevation: 8),
                         ),
                       )
                     ],
@@ -390,6 +428,528 @@ class _PlaceDetailsScreenState extends State<PlaceDetailsScreen> {
         .map((item) => _text(item))
         .where((item) => item.isNotEmpty)
         .toList();
+  }
+
+  Color _badgeColor(dynamic value) {
+    final hex = _text(value).replaceFirst('#', '');
+    if (RegExp(r'^[0-9a-fA-F]{6}$').hasMatch(hex)) {
+      return Color(int.parse('FF$hex', radix: 16));
+    }
+    return const Color(0xFF176A50);
+  }
+
+  IconData _badgeIcon(String value) {
+    switch (value) {
+      case 'church':
+        return Icons.church_outlined;
+      case 'museum':
+        return Icons.museum_outlined;
+      case 'nature':
+        return Icons.park_outlined;
+      case 'monument':
+        return Icons.account_balance_outlined;
+      case 'plaza':
+        return Icons.location_city_outlined;
+      default:
+        return Icons.workspace_premium_outlined;
+    }
+  }
+
+  Widget _buildLandmarkBadge({
+    required String name,
+    required String description,
+    required String iconName,
+    required String imagePath,
+    required Color color,
+    required int requiredMinutes,
+  }) {
+    return AnimatedBuilder(
+      animation: _badgePulse ?? kAlwaysDismissedAnimation,
+      builder: (context, child) => Transform.scale(
+        scale: 1 + ((_badgePulse?.value ?? 0) * .006),
+        child: child,
+      ),
+      child: Semantics(
+        button: true,
+        label: 'Preview the $name badge',
+        child: GestureDetector(
+          onTap: () => _showBadgeDetails(
+            name: name,
+            description: description,
+            iconName: iconName,
+            imagePath: imagePath,
+            color: color,
+            requiredMinutes: requiredMinutes,
+          ),
+          child: Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [color.withOpacity(.13), color.withOpacity(.035)],
+        ),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: color.withOpacity(.24)),
+        boxShadow: [
+          BoxShadow(
+              color: color.withOpacity(.08),
+              blurRadius: 22,
+              offset: const Offset(0, 9))
+        ],
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+                color: color.withOpacity(.12),
+                borderRadius: BorderRadius.circular(9)),
+            child: Icon(Icons.workspace_premium_rounded,
+                size: 17, color: color),
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text('COLLECTIBLE LANDMARK BADGE',
+                style: GoogleFonts.poppins(
+                    fontSize: 9,
+                    letterSpacing: .8,
+                    color: color,
+                    fontWeight: FontWeight.w800)),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+            decoration: BoxDecoration(
+                color: Colors.white.withOpacity(.78),
+                borderRadius: BorderRadius.circular(99),
+                border: Border.all(color: color.withOpacity(.14))),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.lock_outline_rounded, size: 12, color: color),
+              const SizedBox(width: 4),
+              Text('LOCKED',
+                  style: GoogleFonts.poppins(
+                      fontSize: 8,
+                      letterSpacing: .5,
+                      color: color,
+                      fontWeight: FontWeight.w800)),
+            ]),
+          ),
+        ]),
+        const SizedBox(height: 16),
+        Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+          Container(
+            width: 96,
+            height: 96,
+            padding: const EdgeInsets.all(5),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+              border: Border.all(color: color.withOpacity(.28), width: 2),
+              boxShadow: [
+                BoxShadow(
+                    color: color.withOpacity(.24),
+                    blurRadius: 18,
+                    offset: const Offset(0, 7))
+              ],
+            ),
+            child: _buildShiningBadgeArtwork(
+              imagePath: imagePath,
+              iconName: iconName,
+              color: color,
+              iconSize: 40,
+              cacheWidth: 320,
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+              Text(name,
+                  style: GoogleFonts.poppins(
+                      fontSize: 17,
+                      height: 1.25,
+                      color: const Color(0xFF18372D),
+                      fontWeight: FontWeight.w700)),
+              const SizedBox(height: 6),
+              Text(description,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.poppins(
+                      fontSize: 10.5,
+                      height: 1.45,
+                      color: const Color(0xFF66776F))),
+            ]),
+          ),
+        ]),
+        const SizedBox(height: 17),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+          decoration: BoxDecoration(
+              color: Colors.white.withOpacity(.72),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: color.withOpacity(.13))),
+          child: Row(children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                  color: color.withOpacity(.12), shape: BoxShape.circle),
+              child: Icon(Icons.location_on_outlined, size: 18, color: color),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                Text('Stay for $requiredMinutes minutes to unlock',
+                    style: GoogleFonts.poppins(
+                        fontSize: 11,
+                        color: color,
+                        fontWeight: FontWeight.w700)),
+                const SizedBox(height: 2),
+                Text('Your visit will be verified at this landmark.',
+                    style: GoogleFonts.poppins(
+                        fontSize: 9.5,
+                        color: const Color(0xFF718078))),
+              ]),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+              decoration: BoxDecoration(
+                  color: color.withOpacity(.1),
+                  borderRadius: BorderRadius.circular(99)),
+              child: Text('VIEW BADGE',
+                  style: GoogleFonts.poppins(
+                      fontSize: 7.5,
+                      letterSpacing: .3,
+                      color: color,
+                      fontWeight: FontWeight.w800)),
+            ),
+          ]),
+        ),
+      ]),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShiningBadgeArtwork({
+    required String imagePath,
+    required String iconName,
+    required Color color,
+    required double iconSize,
+    required int cacheWidth,
+  }) {
+    return ClipOval(
+      child: LayoutBuilder(builder: (context, constraints) {
+        final size = constraints.maxWidth.isFinite
+            ? constraints.maxWidth
+            : iconSize * 2;
+        return Stack(fit: StackFit.expand, children: [
+          ColoredBox(
+            color: color,
+            child: imagePath.isNotEmpty
+                ? Image.network(
+                    ApiService.assetUrl(imagePath),
+                    fit: BoxFit.cover,
+                    cacheWidth: cacheWidth,
+                    filterQuality: FilterQuality.high,
+                    errorBuilder: (_, __, ___) => Icon(_badgeIcon(iconName),
+                        color: Colors.white, size: iconSize),
+                  )
+                : Icon(_badgeIcon(iconName),
+                    color: Colors.white, size: iconSize),
+          ),
+          IgnorePointer(
+            child: AnimatedBuilder(
+              animation: _badgePulse ?? kAlwaysDismissedAnimation,
+              builder: (context, child) {
+                final progress = _badgePulse?.value ?? 0;
+                final glow = .12 + (math.sin(progress * math.pi) * .12);
+                return Stack(children: [
+                  Positioned.fill(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: RadialGradient(
+                          center: const Alignment(-.35, -.45),
+                          radius: 1.05,
+                          colors: [
+                            Colors.white.withOpacity(glow),
+                            Colors.transparent,
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    left: (-size * .55) + (progress * size * 1.55),
+                    top: -size * .25,
+                    child: Transform.rotate(
+                      angle: -.28,
+                      child: Container(
+                        width: size * .24,
+                        height: size * 1.5,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(colors: [
+                            Colors.white.withOpacity(0),
+                            Colors.white.withOpacity(.72),
+                            Colors.white.withOpacity(0),
+                          ]),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    right: size * .14,
+                    top: size * .12,
+                    child: Opacity(
+                      opacity: .45 + (progress * .5),
+                      child: Icon(Icons.auto_awesome_rounded,
+                          size: size * .16, color: Colors.white),
+                    ),
+                  ),
+                ]);
+              },
+            ),
+          ),
+        ]);
+      }),
+    );
+  }
+
+  void _showBadgeDetails({
+    required String name,
+    required String description,
+    required String iconName,
+    required String imagePath,
+    required Color color,
+    required int requiredMinutes,
+  }) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        var badgeAnimation = 0;
+        return StatefulBuilder(
+          builder: (modalContext, setSheetState) => SafeArea(
+        top: false,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+          decoration: const BoxDecoration(
+            color: Color(0xFFFBFAF7),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+          ),
+          child: SingleChildScrollView(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Container(
+                  width: 42,
+                  height: 5,
+                  decoration: BoxDecoration(
+                      color: const Color(0xFFD8DDD9),
+                      borderRadius: BorderRadius.circular(99))),
+              const SizedBox(height: 22),
+              Text('A BADGE WORTH EXPLORING FOR',
+                  style: GoogleFonts.poppins(
+                      fontSize: 9,
+                      letterSpacing: 1.1,
+                      color: color,
+                      fontWeight: FontWeight.w800)),
+              const SizedBox(height: 18),
+              GestureDetector(
+                onTap: () => setSheetState(() => badgeAnimation++),
+                child: TweenAnimationBuilder<double>(
+                  key: ValueKey(badgeAnimation),
+                  tween: Tween(begin: 0, end: 1),
+                  duration: const Duration(milliseconds: 720),
+                  curve: Curves.easeInOut,
+                  builder: (context, progress, child) {
+                    final bounce = math.sin(progress * math.pi);
+                    final wobble = math.sin(progress * math.pi * 2) *
+                        .045 *
+                        (1 - progress);
+                    return Transform.rotate(
+                      angle: wobble,
+                      child: Transform.scale(
+                        scale: 1 + (bounce * .12),
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: Stack(alignment: Alignment.center, children: [
+                AnimatedBuilder(
+                  animation: _badgePulse ?? kAlwaysDismissedAnimation,
+                  builder: (context, child) => Transform.scale(
+                    scale: 1 + ((_badgePulse?.value ?? 0) * .06),
+                    child: Opacity(
+                      opacity: .72 + ((_badgePulse?.value ?? 0) * .28),
+                      child: child,
+                    ),
+                  ),
+                  child: Container(
+                    width: 174,
+                    height: 174,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(colors: [
+                        color.withOpacity(.28),
+                        color.withOpacity(.02)
+                      ]),
+                    ),
+                  ),
+                ),
+                Container(
+                  width: 142,
+                  height: 142,
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: color.withOpacity(.32), width: 2),
+                    boxShadow: [
+                      BoxShadow(
+                          color: color.withOpacity(.3),
+                          blurRadius: 28,
+                          offset: const Offset(0, 12))
+                    ],
+                  ),
+                  child: _buildShiningBadgeArtwork(
+                    imagePath: imagePath,
+                    iconName: iconName,
+                    color: color,
+                    iconSize: 58,
+                    cacheWidth: 520,
+                  ),
+                ),
+                Positioned(
+                  right: 12,
+                  bottom: 12,
+                  child: Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                        color: color,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 4)),
+                    child: const Icon(Icons.lock_rounded,
+                        size: 18, color: Colors.white),
+                  ),
+                ),
+                  ]),
+                ),
+              ),
+              const SizedBox(height: 7),
+              Text('Tap the badge',
+                  style: GoogleFonts.poppins(
+                      fontSize: 9,
+                      color: color.withOpacity(.72),
+                      fontWeight: FontWeight.w600)),
+              const SizedBox(height: 18),
+              Text(name,
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.poppins(
+                      fontSize: 23,
+                      height: 1.2,
+                      color: const Color(0xFF18372D),
+                      fontWeight: FontWeight.w700)),
+              const SizedBox(height: 8),
+              Text(description,
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.poppins(
+                      fontSize: 12,
+                      height: 1.55,
+                      color: const Color(0xFF687970))),
+              const SizedBox(height: 20),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                    color: color.withOpacity(.07),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: color.withOpacity(.16))),
+                child: Column(children: [
+                  _buildBadgeGoal(Icons.location_on_outlined,
+                      'Visit the landmark', 'Be physically present at the destination.', color),
+                  const SizedBox(height: 14),
+                  _buildBadgeGoal(Icons.timer_outlined,
+                      'Explore for $requiredMinutes minutes', 'Time spent discovering the place counts toward the badge.', color),
+                  const SizedBox(height: 14),
+                  _buildBadgeGoal(Icons.workspace_premium_outlined,
+                      'Add it to your collection', 'Claim the badge once your visit is verified.', color),
+                ]),
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                height: 54,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(sheetContext);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => MapPreviewScreen(
+                          place: widget.place,
+                          userPosition: widget.userPosition,
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.explore_outlined,
+                      color: Colors.white),
+                  label: Text('Explore this landmark',
+                      style: GoogleFonts.poppins(
+                          fontSize: 14,
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700)),
+                  style: ElevatedButton.styleFrom(
+                    elevation: 0,
+                    backgroundColor: color,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(15)),
+                  ),
+                ),
+              ),
+            ]),
+          ),
+        ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildBadgeGoal(
+      IconData icon, String title, String subtitle, Color color) {
+    return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Container(
+        width: 36,
+        height: 36,
+        decoration:
+            BoxDecoration(color: color.withOpacity(.12), shape: BoxShape.circle),
+        child: Icon(icon, size: 18, color: color),
+      ),
+      const SizedBox(width: 11),
+      Expanded(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(title,
+              style: GoogleFonts.poppins(
+                  fontSize: 11.5,
+                  color: const Color(0xFF253C32),
+                  fontWeight: FontWeight.w700)),
+          const SizedBox(height: 2),
+          Text(subtitle,
+              style: GoogleFonts.poppins(
+                  fontSize: 9.5,
+                  height: 1.4,
+                  color: const Color(0xFF718078))),
+        ]),
+      ),
+    ]);
   }
 
   Widget _buildMetaChip(

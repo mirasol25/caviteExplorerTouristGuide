@@ -100,6 +100,30 @@ export class AdminService {
   }
 
   places() { return this.prisma.landmark.findMany({ orderBy: { name: 'asc' } }); }
+  private badgeDefaults(name: unknown, category: unknown) {
+    const landmarkName = String(name || 'Landmark').trim() || 'Landmark';
+    const placeType = String(category || '').toLowerCase();
+    const icon = placeType.includes('church') || placeType.includes('religious')
+      ? 'church'
+      : placeType.includes('museum')
+        ? 'museum'
+        : placeType.includes('park') || placeType.includes('nature')
+          ? 'nature'
+          : placeType.includes('monument') || placeType.includes('shrine')
+            ? 'monument'
+            : placeType.includes('plaza')
+              ? 'plaza'
+              : 'landmark';
+    const palette = ['#176A50', '#1D5B8F', '#9A5A20', '#7A3E8E', '#B5473A', '#2F7A63'];
+    let hash = 0;
+    for (const character of landmarkName) hash = ((hash << 5) - hash + character.charCodeAt(0)) | 0;
+    return {
+      name: `${landmarkName} Explorer`,
+      description: `Earned after a verified visit to ${landmarkName}.`,
+      icon,
+      color: palette[Math.abs(hash) % palette.length],
+    };
+  }
   private landmarkData(data: any) {
     const list = (value: unknown) => Array.isArray(value) ? value.map(String).filter(Boolean) : String(value || '').split('\n').map((item) => item.trim()).filter(Boolean);
     const normalized: any = { ...data };
@@ -108,6 +132,17 @@ export class AdminService {
     if (data.images !== undefined) normalized.images = Array.isArray(data.images) ? data.images : [];
     if (data.isAlwaysOpen !== undefined) normalized.isAlwaysOpen = data.isAlwaysOpen === true || data.isAlwaysOpen === 'true';
     if (data.isFreeEntrance !== undefined) normalized.isFreeEntrance = data.isFreeEntrance === true || data.isFreeEntrance === 'true';
+    if (data.badgeRequiredMinutes !== undefined) normalized.badgeRequiredMinutes = Math.max(1, Math.round(Number(data.badgeRequiredMinutes) || 30));
+    if (data.badgeRadiusMeters !== undefined) normalized.badgeRadiusMeters = Math.max(20, Number(data.badgeRadiusMeters) || 100);
+    if (data.badgeColor !== undefined && !/^#[0-9a-f]{6}$/i.test(String(data.badgeColor))) delete normalized.badgeColor;
+    const badge = this.badgeDefaults(data.name, data.category);
+    if (data.badgeName !== undefined) normalized.badgeName = String(data.badgeName || badge.name).trim();
+    else if (data.name !== undefined) normalized.badgeName = badge.name;
+    if (data.badgeDescription !== undefined) normalized.badgeDescription = String(data.badgeDescription || badge.description).trim();
+    else if (data.name !== undefined) normalized.badgeDescription = badge.description;
+    if (data.badgeIcon !== undefined) normalized.badgeIcon = String(data.badgeIcon || badge.icon);
+    else if (data.name !== undefined) normalized.badgeIcon = badge.icon;
+    if (data.badgeColor === undefined && data.name !== undefined) normalized.badgeColor = badge.color;
     for (const field of ['importantPeople', 'importantEvents', 'interestingFacts', 'informationSources']) if (data[field] !== undefined) normalized[field] = list(data[field]);
     return normalized;
   }

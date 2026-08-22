@@ -279,6 +279,55 @@ class _MapPreviewScreenState extends State<MapPreviewScreen> {
     }
   }
 
+  Future<List<LatLng>> _findTricycleRoadPath(LatLng from, LatLng to) async {
+    final cacheKey = [
+      'tricycle-road',
+      from.latitude.toStringAsFixed(5),
+      from.longitude.toStringAsFixed(5),
+      to.latitude.toStringAsFixed(5),
+      to.longitude.toStringAsFixed(5),
+    ].join(':');
+    final cached = _pathCache[cacheKey];
+    if (cached != null) return cached;
+    final request = {
+      'locations': [
+        {'lat': from.latitude, 'lon': from.longitude},
+        {'lat': to.latitude, 'lon': to.longitude},
+      ],
+      // Tricycles may use narrow neighborhood roads, but must never be routed
+      // over pedestrian paths or through an off-road landmark interior.
+      'costing': 'motor_scooter',
+      'shape_format': 'polyline6',
+      'directions_options': {'units': 'kilometers'},
+    };
+    final uri = Uri.https(
+      'valhalla1.openstreetmap.de',
+      '/route',
+      {'json': json.encode(request)},
+    );
+    try {
+      final response = await http.get(uri).timeout(const Duration(seconds: 12));
+      if (response.statusCode != 200) {
+        debugPrint('Tricycle road routing failed (${response.statusCode}).');
+        return [];
+      }
+      final result = json.decode(response.body) as Map<String, dynamic>;
+      final trip = result['trip'];
+      final legs = trip is Map ? trip['legs'] : null;
+      if (legs is! List || legs.isEmpty || legs.first is! Map) return [];
+      final shape = (legs.first as Map)['shape']?.toString() ?? '';
+      if (shape.isEmpty) return [];
+      final points = _decodePolyline(shape, precision: 6);
+      if (points.length < 2) return [];
+      if (_pathCache.length >= 80) _pathCache.remove(_pathCache.keys.first);
+      _pathCache[cacheKey] = points;
+      return points;
+    } catch (error) {
+      debugPrint('Tricycle road routing unavailable: $error');
+      return [];
+    }
+  }
+
   List<List<LatLng>> _tricycleAccessPaths(dynamic value) {
     if (value is! List) return [];
     return value
@@ -325,7 +374,7 @@ class _MapPreviewScreenState extends State<MapPreviewScreen> {
     LatLng to, {
     dynamic accessPaths,
   }) async {
-    final directRequest = _findWalkingPath(from, to);
+    final directRequest = _findTricycleRoadPath(from, to);
     final connectors = _tricycleAccessPaths(accessPaths).map((path) {
       final forwardGap = Geolocator.distanceBetween(
             from.latitude,
@@ -360,8 +409,8 @@ class _MapPreviewScreenState extends State<MapPreviewScreen> {
 
     final connectorRequests = connectors.take(3).map((connector) async {
       final sections = await Future.wait([
-        _findWalkingPath(from, connector.path.first),
-        _findWalkingPath(connector.path.last, to),
+        _findTricycleRoadPath(from, connector.path.first),
+        _findTricycleRoadPath(connector.path.last, to),
       ]);
       if (sections.any((path) => path.isEmpty)) return <LatLng>[];
       return _joinPaths([sections.first, connector.path, sections.last]);
@@ -371,7 +420,9 @@ class _MapPreviewScreenState extends State<MapPreviewScreen> {
     final validPaths = alternatives.where((path) => path.length >= 2).toList()
       ..sort((first, second) =>
           _pathDistance(first).compareTo(_pathDistance(second)));
-    return validPaths.isEmpty ? [from, to] : validPaths.first;
+    // An absent road route is safer than drawing a false straight line through
+    // buildings, parks, waterways, or pedestrian-only areas.
+    return validPaths.isEmpty ? [] : validPaths.first;
   }
 
   Future<List<Map<String, dynamic>>> _findVerifiedTransportRoutes(
@@ -487,7 +538,6 @@ class _MapPreviewScreenState extends State<MapPreviewScreen> {
     final legs = _verifiedLegs(journey);
     if (legs.isEmpty) return [];
     final transfers = journey['transferPoints'] as List<dynamic>? ?? [];
-    final finalLegIsOnDemand = legs.last['isOnDemand'] == true;
     final steps = <Map<String, dynamic>>[
       {
         'instruction': 'Starting point: $startAddress',
@@ -512,7 +562,7 @@ class _MapPreviewScreenState extends State<MapPreviewScreen> {
         'instruction': isOnDemandTricycle
             ? returnAvailabilityDependent
                 ? 'Look for an available tricycle going toward $signboard. Availability may vary.'
-                : 'Walk to $signboard and ride a tricycle directly to $destinationName'
+                : 'Walk to $signboard and ride a tricycle to the nearest accessible road for $destinationName'
             : index == 0
                 ? 'Walk to $boardingPlace and ride a $vehicle with $signboard signboard'
                 : 'Ride a $vehicle with $signboard signboard',
@@ -522,6 +572,7 @@ class _MapPreviewScreenState extends State<MapPreviewScreen> {
         'isOnDemand': isOnDemandTricycle,
         'signboard': signboard,
         'vehicle_mode': leg['mode'],
+        'estimatedFare': leg['estimatedFare'] ?? leg['baseFare'],
         'landmark_query': boardingPlace,
       });
 
@@ -542,30 +593,26 @@ class _MapPreviewScreenState extends State<MapPreviewScreen> {
                 _routeText(leg['dropOffName'], 'the transfer point'),
               ),
             );
-      if (!(isFinalLeg && isOnDemandTricycle)) {
-        steps.add({
-          'instruction': 'Get off at $dropOffPlace',
-          'type': 'alight',
-          'phase': 'alight',
-          'legIndex': index,
-          'landmark_query': dropOffPlace,
-        });
-      }
-    }
-
-    if (!finalLegIsOnDemand) {
       steps.add({
-        'instruction': 'Walk to $destinationName',
-        'type': 'walk',
-        'phase': 'walk_to_destination',
-        'legIndex': legs.length - 1,
-        'landmark_query': destinationName,
+        'instruction': isFinalLeg && isOnDemandTricycle
+            ? 'Get off at the nearest accessible road to $destinationName'
+            : 'Get off at $dropOffPlace',
+        'type': 'alight',
+        'phase': 'alight',
+        'legIndex': index,
+        'landmark_query': dropOffPlace,
       });
     }
+
     steps.add({
-      'instruction': finalLegIsOnDemand
-          ? 'Arrive by tricycle at the nearest accessible road to $destinationName'
-          : 'Arrival at $destinationName',
+      'instruction': 'Walk from the drop-off road to $destinationName',
+      'type': 'walk',
+      'phase': 'walk_to_destination',
+      'legIndex': legs.length - 1,
+      'landmark_query': destinationName,
+    });
+    steps.add({
+      'instruction': 'Arrival at $destinationName',
       'type': 'arrival',
       'phase': 'arrival',
       'legIndex': legs.length - 1,
@@ -673,7 +720,7 @@ class _MapPreviewScreenState extends State<MapPreviewScreen> {
                 dropOffPoint,
                 accessPaths: leg['accessPaths'],
               );
-              if (neighborhoodPath.length >= 2) segment = neighborhoodPath;
+              segment = neighborhoodPath;
             }
           }
           return (segment: segment, isOnDemand: isOnDemand);
@@ -706,15 +753,19 @@ class _MapPreviewScreenState extends State<MapPreviewScreen> {
           walkingRequests.insert(0, _findWalkingPath(userPoint, firstBoarding));
         }
         final finalLegIsOnDemand = legs.last['isOnDemand'] == true;
-        if (!finalLegIsOnDemand &&
-            finalDropOff != null &&
+        final routedFinalDropOff = finalLegIsOnDemand && segments.isNotEmpty
+            ? segments.last.last
+            : finalDropOff;
+        if (routedFinalDropOff != null &&
             Geolocator.distanceBetween(
-                    finalDropOff.latitude,
-                    finalDropOff.longitude,
+                    routedFinalDropOff.latitude,
+                    routedFinalDropOff.longitude,
                     destCoords.latitude,
                     destCoords.longitude) >
                 10) {
-          walkingRequests.add(_findWalkingPath(finalDropOff, destCoords));
+          walkingRequests.add(
+            _findWalkingPath(routedFinalDropOff, destCoords),
+          );
         }
       }
       final walkingConnections = (await Future.wait(walkingRequests))
@@ -1024,6 +1075,7 @@ Create exactly one ride step for every verified leg and place a transfer step be
 
   Future<void> _generateMarkersForSteps() async {
     final newMarkers = <Marker>[];
+    final destinationCoords = _getPlaceCoords();
     final verifiedLegs = _verifiedLegs(_verifiedTransportRoute);
     final verifiedTransfers =
         _verifiedTransportRoute?['transferPoints'] as List<dynamic>? ?? [];
@@ -1075,10 +1127,8 @@ Create exactly one ride step for every verified leg and place a transfer step be
 
       final finalLeg = verifiedLegs.last;
       final finalLegIsOnDemand = finalLeg['isOnDemand'] == true;
-      // Pedestrian routing is used for tricycles because it can follow narrow
-      // neighborhood streets. Its final point is the nearest mapped access
-      // road, which is more accurate than the raw landmark pin or the original
-      // backend drop-off coordinate.
+      // Tricycle routing stops on the nearest motor-scooter-accessible road.
+      // Any remaining off-road distance is shown separately as walking.
       final routedArrival = finalLegIsOnDemand && _routeSegments.isNotEmpty
           ? _routeSegments.last.last
           : null;
@@ -1089,7 +1139,7 @@ Create exactly one ride step for every verified leg and place a transfer step be
         final dropOffRoad = finalLeg['dropOffRoadName']?.toString().trim();
         newMarkers.add(_buildJourneyMarker(
           point: finalDropOff,
-          title: finalLegIsOnDemand ? 'ARRIVE' : 'GET OFF',
+          title: 'GET OFF',
           detail: finalLegIsOnDemand
               ? widget.place['name']?.toString() ?? 'Nearest destination road'
               : dropOffLabel != null && dropOffLabel.isNotEmpty
@@ -1113,8 +1163,12 @@ Create exactly one ride step for every verified leg and place a transfer step be
           step['coords'] =
               _pointFromJson(verifiedLegs[rideIndex++]['boardingPoint']);
         } else if (type == 'alight' && alightIndex < verifiedLegs.length) {
+          final legIndex = alightIndex++;
+          final leg = verifiedLegs[legIndex];
           step['coords'] =
-              _pointFromJson(verifiedLegs[alightIndex++]['dropOffPoint']);
+              legIndex == verifiedLegs.length - 1 && leg['isOnDemand'] == true
+                  ? finalDropOff
+                  : _pointFromJson(leg['dropOffPoint']);
         } else if (type == 'transfer' &&
             transferIndex < verifiedTransfers.length &&
             verifiedTransfers[transferIndex] is Map) {
@@ -1122,8 +1176,11 @@ Create exactly one ride step for every verified leg and place a transfer step be
             verifiedTransfers[transferIndex++] as Map,
           );
           step['coords'] = _pointFromJson(transfer['boardingPoint']);
+        } else if (type == 'walk' &&
+            step['phase']?.toString() == 'walk_to_destination') {
+          step['coords'] = destinationCoords;
         } else if (type == 'arrival') {
-          step['coords'] = finalDropOff;
+          step['coords'] = destinationCoords;
         }
       }
 

@@ -23,6 +23,7 @@ model User {
   isActive    Boolean              @default(true)
   trips       TripPlan[]
   badges      UserBadge[]
+  badgeVisits BadgeVisit[]
   redemptions DiscountRedemption[]
   auditLogs   AuditLog[]
   sentInvites AdminInvite[]        @relation("InviteSender")
@@ -88,14 +89,21 @@ model Landmark {
   lastVerifiedAt    DateTime?
   publishedAt       DateTime?
 
-  gameType   String  @default("quiz")
-  badgeImage String?
+  gameType             String  @default("quiz")
+  badgeImage           String?
+  badgeName            String?
+  badgeDescription     String?
+  badgeIcon            String  @default("landmark")
+  badgeColor           String  @default("#176A50")
+  badgeRequiredMinutes Int     @default(30)
+  badgeRadiusMeters    Float   @default(100)
 
-  trips     TripPlan[]
-  earnedBy  UserBadge[]
-  offers    DiscountOffer[]
-  createdAt DateTime        @default(now())
-  updatedAt DateTime        @updatedAt
+  trips       TripPlan[]
+  earnedBy    UserBadge[]
+  badgeVisits BadgeVisit[]
+  offers      DiscountOffer[]
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
 }
 
 model TripPlan {
@@ -104,16 +112,16 @@ model TripPlan {
   landmarkId String
 
   // --- 🚀 NEW FIELDS FOR AI TRIP PLAN ---
-  title        String // "A Day at Aguinaldo Shrine"
-  startAddress String // Where the user is coming from
-  itinerary    Json // Stores the array of steps exactly as the AI provided them
-  commuteGuide Json? // Verified commute steps used by the live guide
-  routeGeometry Json? // Exact verified route line displayed during live guidance
+  title          String // "A Day at Aguinaldo Shrine"
+  startAddress   String // Where the user is coming from
+  itinerary      Json // Stores the array of steps exactly as the AI provided them
+  commuteGuide   Json? // Verified commute steps used by the live guide
+  routeGeometry  Json? // Exact verified route line displayed during live guidance
   plannedStartAt DateTime?
   plannedEndAt   DateTime?
-  tripMode       String @default("SCHEDULED") // SCHEDULED or NOW
-  status         String @default("PLANNED") // PLANNED, ACTIVE, COMPLETED, CANCELLED
-  currentStep    Int    @default(0)
+  tripMode       String    @default("SCHEDULED") // SCHEDULED or NOW
+  status         String    @default("PLANNED") // PLANNED, ACTIVE, COMPLETED, CANCELLED
+  currentStep    Int       @default(0)
 
   addedAt DateTime @default(now())
 
@@ -135,6 +143,24 @@ model UserBadge {
   @@unique([userId, landmarkId])
 }
 
+model BadgeVisit {
+  id                 String    @id @default(uuid())
+  userId             String
+  landmarkId         String
+  accumulatedSeconds Int       @default(0)
+  status             String    @default("ACTIVE")
+  lastCheckInAt      DateTime?
+  leftAt             DateTime?
+  startedAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  landmark Landmark @relation(fields: [landmarkId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, landmarkId])
+  @@index([landmarkId])
+}
+
 model TransportStop {
   id           String               @id @default(uuid())
   name         String
@@ -150,41 +176,41 @@ model TransportStop {
 }
 
 model TransportRoute {
-  id                   String               @id @default(uuid())
-  name                 String
-  mode                 String
-  outboundSignboard    String?
-  inboundSignboard     String?
-  originName           String?
-  originMunicipality   String?
-  originRoadName       String?
-  originLatitude       Float?
-  originLongitude      Float?
-  destinationName      String?
+  id                      String               @id @default(uuid())
+  name                    String
+  mode                    String
+  outboundSignboard       String?
+  inboundSignboard        String?
+  originName              String?
+  originMunicipality      String?
+  originRoadName          String?
+  originLatitude          Float?
+  originLongitude         Float?
+  destinationName         String?
   destinationMunicipality String?
-  destinationRoadName  String?
-  destinationLatitude Float?
-  destinationLongitude Float?
-  outboundGeometry     Json?
-  inboundGeometry      Json?
-  outboundRoads        String[]             @default([])
-  inboundRoads         String[]             @default([])
-  outboundRoadAnchors  Json?
-  inboundRoadAnchors   Json?
-  outboundAccessPoints Json?
-  inboundAccessPoints  Json?
-  isBidirectional      Boolean              @default(true)
-  baseFare             Float?               @map("fareMin")
-  legacyFareMax        Float?               @map("fareMax")
-  baseDistanceKm       Float                @default(4)
-  additionalFarePerKm  Float?
-  fareNotes            String?
-  notes                String?
-  isActive              Boolean              @default(true)
-  lastVerifiedAt       DateTime?
-  stops                 TransportRouteStop[]
-  createdAt             DateTime             @default(now())
-  updatedAt             DateTime             @updatedAt
+  destinationRoadName     String?
+  destinationLatitude     Float?
+  destinationLongitude    Float?
+  outboundGeometry        Json?
+  inboundGeometry         Json?
+  outboundRoads           String[]             @default([])
+  inboundRoads            String[]             @default([])
+  outboundRoadAnchors     Json?
+  inboundRoadAnchors      Json?
+  outboundAccessPoints    Json?
+  inboundAccessPoints     Json?
+  isBidirectional         Boolean              @default(true)
+  baseFare                Float?               @map("fareMin")
+  legacyFareMax           Float?               @map("fareMax")
+  baseDistanceKm          Float                @default(4)
+  additionalFarePerKm     Float?
+  fareNotes               String?
+  notes                   String?
+  isActive                Boolean              @default(true)
+  lastVerifiedAt          DateTime?
+  stops                   TransportRouteStop[]
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
 }
 
 model TransportRouteStop {

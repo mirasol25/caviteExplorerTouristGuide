@@ -8,7 +8,11 @@ async function bootstrap() {
 
   // Enable CORS so your frontend web app can securely call this API
   app.enableCors();
-  app.useStaticAssets(join(process.cwd(), 'uploads'), { prefix: '/uploads/' });
+  app.useStaticAssets(join(process.cwd(), 'uploads'), {
+    prefix: '/uploads/',
+    maxAge: '7d',
+    immutable: true,
+  });
 
   // Start the server on port 3000
   await app.listen(3000, '0.0.0.0');

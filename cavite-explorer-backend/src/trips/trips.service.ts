@@ -21,6 +21,7 @@ export class TripsService {
         tripMode: tripData.tripMode === 'NOW' ? 'NOW' : 'SCHEDULED',
         status: tripData.status === 'ACTIVE' ? 'ACTIVE' : 'PLANNED',
       },
+      include: { landmark: true },
     });
   }
 
@@ -51,7 +52,18 @@ export class TripsService {
       where: { userId: userId },
       include: {
         landmark: {
-          select: { name: true, images: true, municipality: true }, // Bring along some landmark info for the UI
+          select: {
+            id: true,
+            name: true,
+            images: true,
+            municipality: true,
+            latitude: true,
+            longitude: true,
+            badgeName: true,
+            badgeImage: true,
+            badgeRequiredMinutes: true,
+            badgeRadiusMeters: true,
+          },
         },
       },
       orderBy: { addedAt: 'desc' }, // Newest trips first
