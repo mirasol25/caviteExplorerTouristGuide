@@ -19,6 +19,20 @@
 
 The backend is hosted on Render's free tier. After a period of inactivity, the first request may take longer while the service wakes up.
 
+## Hackathon review guide
+
+Cavite Explorer is a working tourism and local-mobility prototype, not merely a design concept. It is designed around a practical problem for visitors: finding meaningful places in Cavite, understanding a locally verified way to reach them, and being rewarded for an actual visit.
+
+For a quick review, judges can:
+
+1. Open the mobile app and browse landmark information, photos, visitor stories, ratings, and nearby destinations.
+2. Choose a landmark to compare available verified commute options, then start the live commute guide.
+3. Visit a configured landmark radius to see the badge-verification countdown and local notification flow.
+4. Open the badge collection to see earned and locked badges, including a unique QR-based partner redemption credential for an earned badge.
+5. Sign in to the admin portal as an administrator or editor to review the mapped-landmark, route-builder, partner-approval, and data-maintenance workflows.
+
+The deployed API health endpoint is available without credentials. The administrative portal and role-specific functions require valid authorized accounts.
+
 ## What the system does
 
 Cavite Explorer connects four workflows in one platform:
@@ -43,6 +57,14 @@ Cavite Explorer connects four workflows in one platform:
 - Verified visitor reviews, ratings, photos, and a private-first memory journal
 - Full-screen swipeable photo galleries
 - Separate partner onboarding, dashboard, QR scanner, and redemption reports
+
+### Key innovation and data model
+
+- **Verified-first commute engine:** Routes, signboards, fares, boarding areas, transfer points, road labels, and route geometry are maintained by authorized local administrators instead of being invented by an AI model.
+- **Human-readable assistance:** Groq is used to phrase verified route data clearly. It is not treated as the source of transport truth.
+- **Visit-to-reward loop:** GPS verification, required stay duration, background tracking, a unique badge credential, proximity-based partner eligibility, and server-side one-time redemption checks form one complete reward workflow.
+- **Community content with verification:** Ratings, photos, stories, and memories are linked to actual landmark visits, helping reduce low-quality or unrelated place reviews.
+- **Role-based operations:** Admins govern accounts and approval; editors curate place and transport data; partners manage offers and scan QR codes; tourists discover, navigate, collect, and share.
 
 ### Admin portal
 
@@ -90,10 +112,18 @@ The commute engine treats administrator-verified transport data as the source of
 
 ## Known limitations
 
+- **Landmark coverage is not yet complete for all of Cavite.** The current landmark catalogue is a curated and growing dataset, focused on the locations that have been entered and reviewed so far. It does **not** yet represent every historical site, museum, park, cultural space, church, restaurant, community attraction, or municipality in Cavite.
 - **Transportation-route data is still incomplete.** The current database does not yet cover every jeepney, modern jeepney, bus, multicab, UV Express, or tricycle service in Cavite and nearby cities.
 - Commute suggestions are limited to the routes and transfer connections that administrators or editors have already mapped and verified. A valid local route may therefore be missing from the results.
 - Route names, signboards, fares, stops, schedules, and road paths can change. Transport records require continued field validation and regular updates before the system is used as a complete public commuting reference.
+- Landmark descriptions, visitor schedules, fees, contact details, accessibility notes, badge settings, and partner offers also require ongoing local verification. The platform is built to make these updates manageable through the admin/editor portal.
+- The current release is optimized and tested for Android distribution. iOS distribution requires a macOS/Xcode build environment and separate Apple signing before it can be released.
+- Render's free-tier cold starts and public OpenStreetMap tile availability may affect first-load speed during demonstrations.
 - Users should treat the current commute feature as a field-testing guide and confirm critical trip details locally when a route has limited or outdated coverage.
+
+### Coverage and safety policy
+
+The app intentionally avoids presenting unmapped places or unverified transport services as if they were complete data. When there is no supported commute path, the intended product behavior is to communicate that no verified route is available rather than fabricate a recommendation. This protects visitors while giving admins a clear reason to add the missing landmark, route, terminal, road geometry, or transfer point.
 
 ## Repository layout
 
@@ -335,4 +365,4 @@ Use an identifiable app user agent, cache responsibly, and move to a suitable OS
 
 ## Project status
 
-The system is ready for controlled Android field testing. Before a broad public launch, complete a real-device test matrix across multiple Android versions, review privacy disclosures and data-retention rules, add operational monitoring/backups, and confirm that map-tile usage remains compliant at the expected traffic level.
+The system is ready for controlled Android field testing and hackathon evaluation. Before a broad public launch, complete landmark and route coverage across Cavite, run a real-device test matrix across multiple Android versions, review privacy disclosures and data-retention rules, add operational monitoring/backups, establish a transport-data review schedule, and confirm that map-tile usage remains compliant at the expected traffic level.

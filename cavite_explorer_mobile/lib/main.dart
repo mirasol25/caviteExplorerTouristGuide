@@ -61,6 +61,10 @@ class _CaviteExplorerAppState extends State<CaviteExplorerApp>
     AuthService.badgeEligible.addListener(_syncBadgeSession);
     _listenForAppLinks();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Android 13+ requires a runtime prompt before nearby-landmark, badge,
+      // and live-commute notifications can appear. Ask on the first app launch
+      // so it is presented alongside the app's location permission flow.
+      await NotificationService.requestPermission();
       final initial = await NotificationService.initialPayload();
       if (initial != null) await _openNotificationPayload(initial);
       await _offerBackgroundAwareness();
