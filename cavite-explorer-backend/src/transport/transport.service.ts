@@ -795,7 +795,6 @@ export class TransportService {
     const options = [...selectableCandidates.values()];
     if (!options.length) return this.cacheMatch(cacheKey, []);
 
-    const rides = (candidate: any) => Math.max(1, Number(candidate.legs?.length || 1));
     const knownFare = (candidate: any) => {
       const value = fare(candidate);
       return Number.isFinite(value) ? value : 9999;
@@ -804,29 +803,68 @@ export class TransportService {
       .map((leg: any) => `${leg.id}:${leg.direction}`)
       .join('>');
 
-    // These three ranks intentionally answer different passenger needs:
-    // - balanced: affordable without accepting a long walk;
-    // - budget: lowest known fare, then the least walking among similar fares;
-    // - convenient: least walking and fewest transfers, even when it costs more.
+    // A locally familiar vehicle should lead the recommendations whenever it
+    // is viable. This keeps the first cards useful to Cavite commuters instead
+    // of repeatedly showing nearly identical routes just because their fare or
+    // walking score differs by a few meters.
+    //
+    // Priority: Jeepney/Modern Jeepney -> Multicab -> Bus/UV Express ->
+    // Tricycle. A missing vehicle type is simply skipped; the next practical
+    // transport type is shown instead.
     const balancedRank = (candidate: any) =>
       knownFare(candidate) + walkingDistance(candidate) / 70 + Number(candidate.transferCount || 0) * 8;
-    const budgetRank = (candidate: any) =>
-      knownFare(candidate) * 1000 + walkingDistance(candidate) + Number(candidate.transferCount || 0) * 150;
-    const convenientRank = (candidate: any) =>
-      walkingDistance(candidate) + Number(candidate.transferCount || 0) * 350 + rides(candidate) * 100 + knownFare(candidate) * 2;
+
+    const vehicleModes = (candidate: any) => (candidate.legs || [candidate])
+      .map((leg: any) => leg.mode?.toString().trim().toLowerCase() || '')
+      .filter(Boolean);
+    const hasVehicle = (candidate: any, vehicle: 'jeepney' | 'multicab' | 'bus' | 'tricycle') => {
+      const modes = vehicleModes(candidate);
+      switch (vehicle) {
+        case 'jeepney':
+          // Modern jeepneys remain jeepney routes for recommendation purposes.
+          return modes.some((mode) => mode.includes('jeepney'));
+        case 'multicab':
+          return modes.some((mode) => mode.includes('multicab'));
+        case 'bus':
+          return modes.some((mode) => mode.includes('bus') || mode.includes('uv express') || mode === 'uv');
+        case 'tricycle':
+          return modes.some((mode) => mode.includes('tricycle'));
+      }
+    };
+    const primaryVehicle = (candidate: any) => {
+      if (hasVehicle(candidate, 'jeepney')) return 'jeepney';
+      if (hasVehicle(candidate, 'multicab')) return 'multicab';
+      if (hasVehicle(candidate, 'bus')) return 'bus';
+      if (hasVehicle(candidate, 'tricycle')) return 'tricycle';
+      return 'other';
+    };
+    const vehiclePriority = (candidate: any) => {
+      switch (primaryVehicle(candidate)) {
+        case 'jeepney': return 0;
+        case 'multicab': return 1;
+        case 'bus': return 2;
+        case 'tricycle': return 3;
+        default: return 4;
+      }
+    };
+    // Used only to fill unused cards after the distinct transport-type picks.
+    // The priority gap deliberately outweighs small fare/walking differences,
+    // but all candidates have already passed the configured walking limits.
+    const smartRank = (candidate: any) =>
+      vehiclePriority(candidate) * 10000 + balancedRank(candidate);
 
     const selected: any[] = [];
     const selectedBySignature = new Map<string, any>();
-    const select = (profile: 'balanced' | 'budget' | 'convenient', rank: (candidate: any) => number) => {
-      const candidate = [...options]
+    const select = (
+      profile: 'jeepney' | 'multicab' | 'bus' | 'tricycle' | 'alternative',
+      pool: any[],
+      rank: (candidate: any) => number = balancedRank,
+    ) => {
+      const candidate = [...pool]
+        .filter((item) => !selectedBySignature.has(routeSignature(item)))
         .sort((first, second) => rank(first) - rank(second))[0];
       if (!candidate) return;
       const signature = routeSignature(candidate);
-      const existing = selectedBySignature.get(signature);
-      if (existing) {
-        existing.recommendationProfiles.push(profile);
-        return;
-      }
       const recommendation = {
         ...candidate,
         recommendationProfile: profile,
@@ -836,24 +874,20 @@ export class TransportService {
       selected.push(recommendation);
     };
 
-    select('balanced', balancedRank);
-    select('budget', budgetRank);
-    select('convenient', convenientRank);
+    // Select the best distinct journey for each familiar vehicle type. A route
+    // that already includes a jeepney is represented by the jeepney card,
+    // preventing a jeepney -> tricycle journey from appearing twice.
+    select('jeepney', options.filter((candidate) => primaryVehicle(candidate) === 'jeepney'));
+    select('multicab', options.filter((candidate) => primaryVehicle(candidate) === 'multicab'));
+    select('bus', options.filter((candidate) => primaryVehicle(candidate) === 'bus'));
+    select('tricycle', options.filter((candidate) => primaryVehicle(candidate) === 'tricycle'));
 
-    // If two profiles resolve to the same journey, fill the remaining cards
-    // with the next best distinct balanced journeys instead of showing
-    // repetitive suggestions.
-    for (const candidate of [...options].sort((first, second) => balancedRank(first) - balancedRank(second))) {
-      if (selected.length >= 3) break;
-      const signature = routeSignature(candidate);
-      if (selectedBySignature.has(signature)) continue;
-      const recommendation = {
-        ...candidate,
-        recommendationProfile: 'alternative',
-        recommendationProfiles: ['alternative'],
-      };
-      selectedBySignature.set(signature, recommendation);
-      selected.push(recommendation);
+    // Fill up to four cards with the next most useful distinct routes. This
+    // preserves alternatives without pushing a viable jeepney behind a tiny
+    // fare or distance difference from another vehicle type.
+    for (const candidate of [...options].sort((first, second) => smartRank(first) - smartRank(second))) {
+      if (selected.length >= 4) break;
+      select('alternative', [candidate], smartRank);
     }
     return this.cacheMatch(cacheKey, selected);
   }

@@ -1830,6 +1830,10 @@ Create exactly one ride step for every verified leg and place a transfer step be
                                               'balanced' => 'Best value',
                                               'budget' => 'Lowest fare',
                                               'convenient' => 'Most convenient',
+                                              'jeepney' => 'Jeepney route',
+                                              'multicab' => 'Multicab route',
+                                              'bus' => 'Bus / UV route',
+                                              'tricycle' => 'Tricycle route',
                                               'alternative' => 'Alternative',
                                               _ => null,
                                             })
