@@ -430,16 +430,12 @@ class _MapPreviewScreenState extends State<MapPreviewScreen> {
   Future<List<Map<String, dynamic>>> _findVerifiedTransportRoutes(
       Position position, LatLng destination) async {
     try {
-      final uri =
-          ApiService.uri('/transport/routes/match').replace(queryParameters: {
-        'startLat': position.latitude.toString(),
-        'startLng': position.longitude.toString(),
-        'destinationLat': destination.latitude.toString(),
-        'destinationLng': destination.longitude.toString(),
-      });
-      final response = await http.get(uri);
-      if (response.statusCode != 200) return [];
-      final matches = json.decode(response.body) as List<dynamic>;
+      final matches = await ApiService.getTransportMatches(
+        startLat: position.latitude,
+        startLng: position.longitude,
+        destinationLat: destination.latitude,
+        destinationLng: destination.longitude,
+      );
       return matches
           .whereType<Map>()
           .map((match) => Map<String, dynamic>.from(match))

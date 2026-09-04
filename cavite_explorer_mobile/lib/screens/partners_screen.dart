@@ -1,8 +1,5 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:http/http.dart' as http;
 
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
@@ -29,13 +26,8 @@ class _PartnersScreenState extends State<PartnersScreen> {
   Future<void> _load() async {
     try {
       final user = await AuthService.getUser();
-      final response = await http.get(ApiService.uri('/rewards/partners'),
-          headers: {'Authorization': 'Bearer ${user?['token'] ?? ''}'});
-      final body = json.decode(response.body);
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw Exception(body['message'] ?? 'Could not load partners.');
-      }
-      _partners = (body as List)
+      final body = await ApiService.getPartners(user?['token']?.toString() ?? '');
+      _partners = body
           .whereType<Map>()
           .map((item) => Map<String, dynamic>.from(item))
           .toList();

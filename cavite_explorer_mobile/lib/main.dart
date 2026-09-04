@@ -50,6 +50,7 @@ class _CaviteExplorerAppState extends State<CaviteExplorerApp>
     with WidgetsBindingObserver {
   StreamSubscription<String>? _notificationSubscription;
   StreamSubscription<Uri>? _appLinkSubscription;
+  bool _refreshingOfflineDirectory = false;
 
   @override
   void initState() {
@@ -65,6 +66,7 @@ class _CaviteExplorerAppState extends State<CaviteExplorerApp>
       // and live-commute notifications can appear. Ask on the first app launch
       // so it is presented alongside the app's location permission flow.
       await NotificationService.requestPermission();
+      unawaited(_refreshOfflineDirectory());
       final initial = await NotificationService.initialPayload();
       if (initial != null) await _openNotificationPayload(initial);
       await _offerBackgroundAwareness();
@@ -177,6 +179,22 @@ class _CaviteExplorerAppState extends State<CaviteExplorerApp>
     BackgroundTrackingService.setAppForeground(resumed);
     if (resumed) {
       unawaited(BackgroundTrackingService.refreshLandmarkAwareness());
+      unawaited(_refreshOfflineDirectory());
+    }
+  }
+
+  Future<void> _refreshOfflineDirectory() async {
+    if (_refreshingOfflineDirectory) return;
+    _refreshingOfflineDirectory = true;
+    try {
+      final user = await AuthService.getUser();
+      await ApiService.syncOfflineData(token: user?['token']?.toString());
+      debugPrint('Offline directory cache refreshed.');
+    } catch (error) {
+      // Expected while offline. Existing downloaded information remains usable.
+      debugPrint('Offline directory refresh skipped: $error');
+    } finally {
+      _refreshingOfflineDirectory = false;
     }
   }
 
